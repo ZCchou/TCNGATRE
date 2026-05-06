@@ -1,0 +1,27 @@
+# Python caches
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.pyo
+
+# Notebook / local tool state
+.ipynb_checkpoints/
+**/.ipynb_checkpoints/
+.claude/
+
+# Local datasets and experiment outputs
+dataset/
+batch_logs/
+**/runs/
+
+# Training artifacts
+*.pt
+*.pth
+*.ckpt
+
+# Local generated figures
+big_o_complexity_curves.png
+big_o_complexity_curves_legend.png
+model_time_complexity_curves_legend.png
+time_complexity_index.png
+time_complexity_index_line.png
