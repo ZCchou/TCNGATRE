@@ -9,8 +9,7 @@ __pycache__/
 **/.ipynb_checkpoints/
 .claude/
 
-# Local datasets and experiment outputs
-dataset/
+# Local experiment outputs
 batch_logs/
 **/runs/
 

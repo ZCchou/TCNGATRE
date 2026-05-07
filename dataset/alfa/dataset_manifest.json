@@ -1,0 +1,34 @@
+{
+  "manifest_version": 1,
+  "dataset_kind": "alfa_shared_wide_csv",
+  "wide_root_discovery": {
+    "mode": "scan_for_no_failure_and_failure"
+  },
+  "labels_dirname": "wide_flights_failure_labels",
+  "prefail_normal_suffix": "__prefail_normal",
+  "prefail_normal_policy": "train_only",
+  "failure_label_time_offset_sec": -20.0,
+  "trim_leading_sec": 0.0,
+  "legacy_train_flights": [
+    "carbonZ_2018-07-18-16-37-39_1_no_failure",
+    "carbonZ_2018-07-30-16-39-00_3_no_failure",
+    "carbonZ_2018-09-11-14-16-55_no_failure",
+    "carbonZ_2018-09-11-14-41-38_no_failure",
+    "carbonZ_2018-09-11-15-05-11_2_no_failure",
+    "carbonZ_2018-10-05-14-37-22_1_no_failure",
+    "carbonZ_2018-10-05-15-52-12_1_no_failure",
+    "carbonZ_2018-10-05-15-52-12_2_no_failure",
+    "carbonZ_2018-10-18-11-08-24_no_failure"
+  ],
+  "legacy_val_flights": [
+    "carbonZ_2018-10-05-14-34-20_1_no_failure"
+  ],
+  "expected_counts": {
+    "no_failure_total": 30,
+    "classic_no_failure": 10,
+    "prefail_normal": 20,
+    "failure_total": 16,
+    "train_normal": 29,
+    "val_normal": 1
+  }
+}

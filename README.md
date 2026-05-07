@@ -4,14 +4,13 @@ Code release for **TCNGATRE**, an interleaved temporal-graph forecasting framewo
 
 ## Repository Scope
 
-This repository is organized as a **code-first release**. Local-only assets that are useful for experimentation but should not be uploaded to GitHub are intentionally excluded from the public package, including:
+This repository is organized as a **research release**. Local-only assets that are useful for experimentation but should not be uploaded to GitHub are intentionally excluded from version control where appropriate, including:
 
-- raw and processed datasets under `dataset/`
 - model checkpoints and inference outputs under `*/runs/`
 - batch logs and local cache files
 - ad hoc generated figures used during analysis
 
-The root `.gitignore` keeps these assets local by default.
+The root `.gitignore` keeps these local artifacts out of version control by default.
 
 ## Included Code
 
@@ -24,15 +23,15 @@ The root `.gitignore` keeps these assets local by default.
 - `summarize_all_model_results.py`: aggregate experiment summaries
 - `plot_all_model_metrics.py`: metric plotting utilities
 
-## Local Data Convention
+## Dataset Layout
 
-The training and evaluation code expects datasets to be placed locally under:
+The training and evaluation code uses the following dataset directories:
 
 - `dataset/alfa`
 - `dataset/gpsdata`
 - `dataset/simulate`
 
-These directories are treated as local data mounts and are not part of the GitHub release.
+These datasets are included in this repository for reproducibility. Training outputs and generated analysis artifacts remain excluded from version control.
 
 ## Clean GitHub Export
 

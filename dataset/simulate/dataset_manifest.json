@@ -1,0 +1,36 @@
+{
+  "manifest_version": 1,
+  "dataset_kind": "simulate_shared_wide_csv",
+  "wide_root_discovery": {
+    "mode": "scan_for_no_failure_and_failure"
+  },
+  "labels_dirname": "wide_flights_failure_labels",
+  "prefail_normal_suffix": "__prefail_normal",
+  "prefail_normal_policy": "train_only",
+  "failure_label_time_offset_sec": 0.0,
+  "trim_leading_sec": 0.0,
+  "physical_trim_leading_sec": 2.0,
+  "physical_trim_time_axis": "rebased_to_zero",
+  "legacy_train_flights": [
+    "normal_01",
+    "normal_02",
+    "normal_03",
+    "normal_04",
+    "normal_05",
+    "normal_06",
+    "normal_07",
+    "normal_08"
+  ],
+  "legacy_val_flights": [
+    "normal_09",
+    "normal_10"
+  ],
+  "expected_counts": {
+    "no_failure_total": 10,
+    "classic_no_failure": 10,
+    "prefail_normal": 0,
+    "failure_total": 2,
+    "train_normal": 8,
+    "val_normal": 2
+  }
+}
