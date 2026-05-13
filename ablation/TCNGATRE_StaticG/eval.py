@@ -10,8 +10,9 @@ _ABLATION_ROOT = _MODEL_ROOT.parent
 _BASE_ROOT = _ABLATION_ROOT / "base"
 _PROJECT_ROOT = _ABLATION_ROOT.parent
 for _p in [str(_PROJECT_ROOT), str(_BASE_ROOT), str(_MODEL_ROOT)]:
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
+    if _p in sys.path:
+        sys.path.remove(_p)
+    sys.path.insert(0, _p)
 
 import matplotlib.pyplot as plt
 import pandas as pd

@@ -13,8 +13,9 @@ BASE_ROOT = ABLATION_ROOT / "base"
 PROJECT_ROOT = ABLATION_ROOT.parent
 
 for _p in [str(PROJECT_ROOT), str(BASE_ROOT), str(MODEL_ROOT)]:
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
+    if _p in sys.path:
+        sys.path.remove(_p)
+    sys.path.insert(0, _p)
 
 from base_config import TCNGATREConfig
 
