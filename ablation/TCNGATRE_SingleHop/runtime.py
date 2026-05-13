@@ -12,7 +12,7 @@ ABLATION_ROOT = MODEL_ROOT.parent
 BASE_ROOT = ABLATION_ROOT / "base"
 PROJECT_ROOT = ABLATION_ROOT.parent
 
-for _p in [str(MODEL_ROOT), str(BASE_ROOT), str(PROJECT_ROOT)]:
+for _p in [str(PROJECT_ROOT), str(BASE_ROOT), str(MODEL_ROOT)]:
     if _p not in sys.path:
         sys.path.insert(0, _p)
 

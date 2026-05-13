@@ -9,7 +9,7 @@ _MODEL_ROOT = Path(__file__).resolve().parent
 _ABLATION_ROOT = _MODEL_ROOT.parent
 _BASE_ROOT = _ABLATION_ROOT / "base"
 _PROJECT_ROOT = _ABLATION_ROOT.parent
-for _p in [str(_MODEL_ROOT), str(_BASE_ROOT), str(_PROJECT_ROOT)]:
+for _p in [str(_PROJECT_ROOT), str(_BASE_ROOT), str(_MODEL_ROOT)]:
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
