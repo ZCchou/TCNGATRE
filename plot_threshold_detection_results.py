@@ -194,6 +194,13 @@ def fixed_or_auto_ylim(
     return low, high
 
 
+def choose_time_x_col(df: pd.DataFrame) -> str | None:
+    for candidate in ("t", "current_t", "t_end", "current_index", "sample_index", "t_mid"):
+        if candidate in df.columns:
+            return candidate
+    return None
+
+
 def dataset_clip_settings(
     dataset: str,
     y_min: float | None,
@@ -235,7 +242,7 @@ def draw_detection_threshold_plot(
     y_max: float | None,
     clip_y: bool,
 ) -> DetectionThresholdPlotSpec | None:
-    x_col = base_plot.choose_x_col(flight_df)
+    x_col = choose_time_x_col(flight_df)
     score_col = base_plot.choose_score_col(flight_df)
     if x_col is None or score_col is None or label_col not in flight_df.columns:
         return None
@@ -321,7 +328,7 @@ def draw_detection_threshold_plot(
 
     y_low, y_high = fixed_or_auto_ylim(y_arrays, y_min=y_min, y_max=y_max)
     ax.set_ylim(y_low, y_high)
-    ax.set_xlabel(x_col, fontsize=axis_fontsize)
+    ax.set_xlabel("t", fontsize=axis_fontsize)
     ax.set_ylabel("score / threshold", fontsize=axis_fontsize)
     ax.tick_params(axis="both", labelsize=tick_fontsize)
     ax.grid(axis="y", color="#D8DEE9", linestyle="--", linewidth=0.9, alpha=0.82)
@@ -346,14 +353,9 @@ def draw_detection_threshold_plot(
     else:
         ax.legend(loc=legend_loc, frameon=True, framealpha=0.94, fontsize=legend_fontsize)
 
-    note = "Red background = ground-truth anomaly window. Markers show points predicted anomalous by each threshold method."
-    if clip_y:
-        note += " Y values are clipped to the requested y-axis range."
-    ax.text(0.0, -0.17, note, transform=ax.transAxes, fontsize=note_fontsize, color="#4A5568")
-
     try:
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(output_path, dpi=dpi, bbox_inches="tight")
+        fig.savefig(output_path, dpi=dpi)
     except PermissionError as exc:
         print(
             f"[WARN] could not write threshold detection plot "
