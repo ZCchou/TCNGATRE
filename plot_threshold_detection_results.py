@@ -165,7 +165,11 @@ def resolve_path(path_text: str) -> Path:
 
 def selected_threshold_specs(methods: list[str]) -> list[dict]:
     selected = set(str(method) for method in methods)
-    return [spec for spec in THRESHOLD_SPECS if str(spec["name"]) in selected]
+    return [
+        spec
+        for spec in THRESHOLD_SPECS
+        if str(spec["name"]) in selected and str(spec["name"]) != "static_f1_oracle"
+    ]
 
 
 def maybe_clip(values: np.ndarray, y_min: float | None, y_max: float | None, enabled: bool) -> np.ndarray:
@@ -301,8 +305,6 @@ def draw_detection_threshold_plot(
         )
 
     for spec in available_specs:
-        if str(spec["name"]) == "static_f1_oracle":
-            continue
         pred_col = str(spec["pred_col"])
         if pred_col not in df.columns:
             continue
