@@ -297,10 +297,12 @@ def draw_detection_threshold_plot(
             linewidth=1.8,
             linestyle=spec["linestyle"],
             alpha=0.96,
-            label=f"{spec['label']} threshold ({threshold_col})",
+            label=f"{spec['label']} threshold",
         )
 
     for spec in available_specs:
+        if str(spec["name"]) == "static_f1_oracle":
+            continue
         pred_col = str(spec["pred_col"])
         if pred_col not in df.columns:
             continue
@@ -321,7 +323,7 @@ def draw_detection_threshold_plot(
             color=str(spec["pred_color"]),
             marker=spec["marker"],
             linewidths=1.3,
-            alpha=0.86,
+            alpha=0.8,
             label=f"{spec['label']} anomaly",
             zorder=4,
         )
