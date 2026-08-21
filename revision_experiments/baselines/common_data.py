@@ -47,6 +47,8 @@ class CommonDataBundle:
         manifest_path = self.root / "manifest.json"
         if not manifest_path.exists():
             raise FileNotFoundError(f"Common baseline data is missing: {manifest_path}")
+        self.manifest_path = manifest_path
+        self.manifest_sha256 = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
         payload = json.loads(manifest_path.read_text(encoding="utf-8"))
         if payload.get("labels_exported") is not False:
             raise RuntimeError("Baseline common data must not contain failure labels")
@@ -267,6 +269,9 @@ def seed_everything(seed: int) -> None:
 
 def adapter_config_hash(cfg, baseline: str, parameters: dict, source_commit: str, adapter_file: Path) -> str:
     finalize_file = Path(adapter_file).with_name("finalize.py")
+    manifest_file = COMMON_DATA_ROOT / cfg.dataset / "manifest.json"
+    if not manifest_file.is_file():
+        raise FileNotFoundError(f"Common baseline manifest is missing: {manifest_file}")
     payload = {
         "revision_config": cfg.to_dict(),
         "baseline": baseline,
@@ -274,6 +279,7 @@ def adapter_config_hash(cfg, baseline: str, parameters: dict, source_commit: str
         "source_commit": source_commit,
         "adapter_sha256": hashlib.sha256(Path(adapter_file).read_bytes()).hexdigest(),
         "common_data_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+        "common_data_manifest_sha256": hashlib.sha256(manifest_file.read_bytes()).hexdigest(),
         "finalize_sha256": hashlib.sha256(finalize_file.read_bytes()).hexdigest(),
     }
     encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")

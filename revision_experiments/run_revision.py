@@ -16,6 +16,7 @@ os.environ.setdefault("PYTHONDONTWRITEBYTECODE", "1")
 
 from revision_experiments.analysis.graph_interpretability import analyze_graph_run
 from revision_experiments.analysis.summarize import collect_primary_metrics
+from revision_experiments.baselines.export_common_data import ensure_common_data
 from revision_experiments.baselines.manager import audit_adapter_runs, fetch_and_audit, load_sources
 from revision_experiments.baselines.launcher import execute_isolated_baseline
 from revision_experiments.core.config import DATASETS, load_protocol, make_config
@@ -190,6 +191,23 @@ def command_fetch(args) -> int:
     return 0
 
 
+def command_prepare_baseline_data(args) -> int:
+    verify_snapshot()
+    report = {}
+    for dataset in _datasets(args.datasets):
+        manifest = ensure_common_data(dataset, force=args.force)
+        report[dataset] = {
+            "status": "ready",
+            "nodes": len(manifest["nodes"]),
+            "train": len(manifest["train"]),
+            "validation": len(manifest["validation"]),
+            "failure": len(manifest["failure"]),
+            "labels_exported": manifest["labels_exported"],
+        }
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    return 0
+
+
 def command_audit_adapters(args) -> int:
     report = audit_adapter_runs(seed=args.seed)
     print(json.dumps({
@@ -247,6 +265,14 @@ def build_parser() -> argparse.ArgumentParser:
     fetch = sub.add_parser("fetch-baselines", help="Fetch and audit official baseline repositories.")
     fetch.add_argument("--baselines", default="all")
     fetch.set_defaults(func=command_fetch)
+
+    prepare_data = sub.add_parser(
+        "prepare-baseline-data",
+        help="Build canonical graphs and export validated label-free baseline data.",
+    )
+    prepare_data.add_argument("--datasets", default="all")
+    prepare_data.add_argument("--force", action="store_true")
+    prepare_data.set_defaults(func=command_prepare_baseline_data)
 
     adapter_audit = sub.add_parser("audit-adapters", help="Validate isolated CATCH/CAROTS result artifacts.")
     adapter_audit.add_argument("--seed", type=int, default=0)

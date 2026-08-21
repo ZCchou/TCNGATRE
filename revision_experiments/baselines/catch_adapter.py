@@ -205,7 +205,10 @@ def run(cfg, force: bool = False) -> dict:
             source_commit=source_commit, adapter_hash=adapter_hash,
             resolved_config=resolved, history=history,
             validation_raw=validation_raw, failure_raw=failure_raw,
-            extra_provenance={"official_components": ["CATCHModel", "frequency_loss", "frequency_criterion"]},
+            extra_provenance={
+                "official_components": ["CATCHModel", "frequency_loss", "frequency_criterion"],
+                "common_data_manifest_sha256": bundle.manifest_sha256,
+            },
         )
     except Exception as exc:
         record_failure(run_dir, BASELINE, cfg, exc)

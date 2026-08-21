@@ -6,6 +6,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from revision_experiments.baselines.export_common_data import ensure_common_data
+from revision_experiments.core.integrity import verify_snapshot
 from revision_experiments.core.paths import PACKAGE_ROOT, REPO_ROOT
 
 
@@ -25,6 +27,15 @@ def runtime_python(baseline: str) -> Path:
 
 def execute_isolated_baseline(cfg, force: bool = False) -> dict:
     python = runtime_python(cfg.variant)
+    verify_snapshot()
+    common_manifest = ensure_common_data(cfg.dataset)
+    print(
+        f"common_data=ready dataset={cfg.dataset} "
+        f"train={len(common_manifest['train'])} "
+        f"validation={len(common_manifest['validation'])} "
+        f"failure={len(common_manifest['failure'])}",
+        flush=True,
+    )
     run_dir = cfg.run_dir
     run_dir.mkdir(parents=True, exist_ok=True)
     command = [

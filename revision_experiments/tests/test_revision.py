@@ -10,6 +10,11 @@ import numpy as np
 from revision_experiments.analysis.robustness import corrupt_array
 from revision_experiments.analysis.statistics import holm_adjust, paired_sign_permutation, rank_biserial
 from revision_experiments.baselines.common_data import CommonDataBundle, FlightWindowDataset, window_starts
+from revision_experiments.baselines.export_common_data import (
+    EXPORT_PROFILE,
+    EXPORT_SCHEMA_VERSION,
+    validate_common_data,
+)
 from revision_experiments.scoring.aggregators import aggregate_channels
 from revision_experiments.scoring.local_anomaly import inject_local_anomaly
 
@@ -56,6 +61,39 @@ class StatisticsTests(unittest.TestCase):
 
 
 class BaselineCommonDataTests(unittest.TestCase):
+    @staticmethod
+    def _write_valid_export(root: Path) -> Path:
+        dataset_root = root / "toy"
+        dataset_root.mkdir()
+        records = []
+        for split, value in (("train", 0.0), ("validation", 1.0), ("failure", 2.0)):
+            split_root = dataset_root / split
+            split_root.mkdir()
+            path = split_root / f"{split}.npz"
+            np.savez_compressed(
+                path,
+                time=np.arange(8, dtype=np.float32),
+                values=np.full((8, 2), value, np.float32),
+            )
+            records.append({"flight": split, "path": str(path), "rows": 8, "channels": 2})
+        manifest = {
+            "schema_version": EXPORT_SCHEMA_VERSION,
+            "export_profile": EXPORT_PROFILE,
+            "dataset": "toy",
+            "graph_profile": {
+                "source": "normal training flights only",
+                "max_points_per_pair": 200000,
+            },
+            "nodes": ["a", "b"],
+            "normalization_source": "normal training flights only",
+            "labels_exported": False,
+            "train": [records[0]],
+            "validation": [records[1]],
+            "failure": [records[2]],
+        }
+        (dataset_root / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+        return dataset_root
+
     def test_windows_never_cross_flights_and_scaler_is_train_only(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -85,6 +123,20 @@ class BaselineCommonDataTests(unittest.TestCase):
         second = window_starts(100, 10, 2, max_windows=7)
         np.testing.assert_array_equal(first, second)
         self.assertEqual(len(first), 7)
+
+    def test_export_validation_checks_arrays_and_label_boundary(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            dataset_root = self._write_valid_export(root)
+            payload = validate_common_data("toy", root, verify_arrays=True)
+            self.assertFalse(payload["labels_exported"])
+
+            manifest_path = dataset_root / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["labels_exported"] = True
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            with self.assertRaisesRegex(RuntimeError, "labels_exported"):
+                validate_common_data("toy", root, verify_arrays=True)
 
 
 if __name__ == "__main__":

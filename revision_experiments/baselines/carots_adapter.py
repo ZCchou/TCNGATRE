@@ -306,6 +306,7 @@ def run(cfg, force: bool = False) -> dict:
             validation_raw=validation_raw, failure_raw=failure_raw,
             extra_provenance={
                 "official_components": ["CAROTS", "CUTS_Plus_Net", "loss_fn"],
+                "common_data_manifest_sha256": bundle.manifest_sha256,
                 "native_score": "normalized L2 centroid score + normalized CUTS+ prediction score",
             },
         )
