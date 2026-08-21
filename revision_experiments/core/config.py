@@ -35,6 +35,8 @@ class RevisionConfig:
     short_kernel: int = 5
     short_patch: int = 8
     dropout: float = 0.2
+    early_stop_patience: int = 5
+    early_stop_min_delta: float = 1e-4
     graph_eta: float = 2.0
     graph_beta: float = 0.5
     graph_gate_init: float = 0.15
@@ -104,6 +106,8 @@ class RevisionConfig:
             short_kernel=self.short_kernel,
             short_patch=self.short_patch,
             dropout=self.dropout,
+            early_stop_patience=self.early_stop_patience,
+            early_stop_min_delta=self.early_stop_min_delta,
             graph_eta=self.graph_eta,
             graph_beta=self.graph_beta,
             graph_gate_init=self.graph_gate_init,
@@ -155,6 +159,8 @@ def make_config(
         short_kernel=int(training["short_kernel"]),
         short_patch=int(training["short_patch"]),
         dropout=float(training["dropout"]),
+        early_stop_patience=int(training.get("early_stop_patience", 5)),
+        early_stop_min_delta=float(training.get("early_stop_min_delta", 1e-4)),
         graph_max_points_per_pair=int(training.get("graph_max_points_per_pair", 200000)),
         cross_dim_loss_enabled=variant not in {"no_cross_dim"},
         aggregator=aggregator,

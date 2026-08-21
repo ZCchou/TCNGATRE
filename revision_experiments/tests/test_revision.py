@@ -6,6 +6,7 @@ import tempfile
 from pathlib import Path
 
 import numpy as np
+import torch
 
 from revision_experiments.analysis.robustness import corrupt_array
 from revision_experiments.analysis.statistics import holm_adjust, paired_sign_permutation, rank_biserial
@@ -15,6 +16,8 @@ from revision_experiments.baselines.export_common_data import (
     EXPORT_SCHEMA_VERSION,
     validate_common_data,
 )
+from revision_experiments.core.config import make_config
+from revision_experiments.core.engine import set_model_seed
 from revision_experiments.scoring.aggregators import aggregate_channels
 from revision_experiments.scoring.local_anomaly import inject_local_anomaly
 
@@ -58,6 +61,35 @@ class StatisticsTests(unittest.TestCase):
     def test_holm_is_monotone_in_sorted_order(self):
         adjusted = holm_adjust([0.01, 0.04, 0.03])
         self.assertTrue(all(0.0 <= value <= 1.0 for value in adjusted))
+
+
+class RevisionTrainingParityTests(unittest.TestCase):
+    def test_formal_config_keeps_native_training_and_early_stopping(self):
+        cfg = make_config("ex01", "alfa", "full", 0)
+        legacy = cfg.to_legacy()
+        self.assertEqual(cfg.epochs, 100)
+        self.assertEqual(cfg.batch_size, 128)
+        self.assertEqual(cfg.lookback, 128)
+        self.assertEqual(cfg.d_model, 64)
+        self.assertEqual(cfg.tcn_layers, 5)
+        self.assertEqual(cfg.tcn_blocks, 4)
+        self.assertTrue(legacy.cross_dim_loss_enabled)
+        self.assertEqual(legacy.early_stop_patience, 5)
+        self.assertAlmostEqual(legacy.early_stop_min_delta, 1e-4)
+
+    def test_seeded_mode_does_not_force_slow_deterministic_kernels(self):
+        previous_algorithms = torch.are_deterministic_algorithms_enabled()
+        previous_deterministic = torch.backends.cudnn.deterministic
+        previous_benchmark = torch.backends.cudnn.benchmark
+        try:
+            state = set_model_seed(3)
+            self.assertFalse(state["deterministic_algorithms"])
+            self.assertFalse(state["cudnn_deterministic"])
+            self.assertFalse(state["cudnn_benchmark"])
+        finally:
+            torch.use_deterministic_algorithms(previous_algorithms)
+            torch.backends.cudnn.deterministic = previous_deterministic
+            torch.backends.cudnn.benchmark = previous_benchmark
 
 
 class BaselineCommonDataTests(unittest.TestCase):

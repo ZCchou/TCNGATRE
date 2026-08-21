@@ -55,7 +55,9 @@
     "tcn_blocks": 4,
     "short_kernel": 5,
     "short_patch": 8,
-    "dropout": 0.2
+    "dropout": 0.2,
+    "early_stop_patience": 5,
+    "early_stop_min_delta": 0.0001
   },
   "smoke": {
     "epochs": 1,
@@ -69,6 +71,8 @@
     "short_kernel": 5,
     "short_patch": 8,
     "dropout": 0.1,
+    "early_stop_patience": 5,
+    "early_stop_min_delta": 0.0001,
     "graph_max_points_per_pair": 5000
   }
 }

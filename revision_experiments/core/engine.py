@@ -42,13 +42,22 @@ from tcngatre_train_impl import (  # noqa: E402
 from utils.normalization import load_minmax_stats  # noqa: E402
 
 
-def set_model_seed(seed: int) -> None:
+def set_model_seed(seed: int) -> dict[str, object]:
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
+    # Match the native single-seed trainer: seed every RNG without forcing
+    # PyTorch onto substantially slower deterministic convolution kernels.
+    torch.use_deterministic_algorithms(False)
+    torch.backends.cudnn.deterministic = False
     torch.backends.cudnn.benchmark = False
-    torch.backends.cudnn.deterministic = True
+    return {
+        "model_seed": int(seed),
+        "deterministic_algorithms": bool(torch.are_deterministic_algorithms_enabled()),
+        "cudnn_deterministic": bool(torch.backends.cudnn.deterministic),
+        "cudnn_benchmark": bool(torch.backends.cudnn.benchmark),
+    }
 
 
 def _device(legacy_cfg) -> torch.device:
@@ -220,10 +229,13 @@ def execute_training_run(cfg: RevisionConfig, force: bool = False) -> dict:
             return {"status": "skipped_complete", "run_dir": str(run_dir), **done}
 
     write_json(run_dir / "config_resolved.json", cfg.to_dict())
-    write_json(run_dir / "provenance.json", environment_payload(REPO_ROOT))
     legacy_cfg = cfg.to_legacy()
     try:
-        set_model_seed(cfg.model_seed)
+        randomness = set_model_seed(cfg.model_seed)
+        write_json(
+            run_dir / "provenance.json",
+            {**environment_payload(REPO_ROOT), "randomness": randomness},
+        )
         ensure_graph_ready(legacy_cfg)
         device = _device(legacy_cfg)
         nodes, a, m = load_graph(Path(legacy_cfg.graph_dir))
@@ -238,6 +250,8 @@ def execute_training_run(cfg: RevisionConfig, force: bool = False) -> dict:
 
         history: list[dict] = []
         best = math.inf
+        best_epoch = 0
+        patience = 0
         start_epoch = 0
         last_path = run_dir / "last.pt"
         if last_path.exists() and not force:
@@ -248,9 +262,29 @@ def execute_training_run(cfg: RevisionConfig, force: bool = False) -> dict:
                 history = list(checkpoint.get("history", []))
                 start_epoch = int(checkpoint.get("epoch", 0))
                 best = float(checkpoint.get("best_val", math.inf))
+                best_epoch = int(checkpoint.get("best_epoch", 0))
+                patience = int(checkpoint.get("patience", 0))
 
+        print(
+            "[TRAIN CONFIG] "
+            f"device={device} train_windows={len(train_ds)} val_windows={len(val_ds)} "
+            f"train_batches={len(train_loader)} val_batches={len(val_loader)} "
+            f"batch_size={cfg.batch_size} epochs={cfg.epochs} "
+            f"early_stop_patience={legacy_cfg.early_stop_patience} "
+            f"cross_dim_loss={legacy_cfg.cross_dim_loss_enabled} randomness={randomness}",
+            flush=True,
+        )
+
+        patience_limit = int(legacy_cfg.early_stop_patience)
+        end_epoch = start_epoch if start_epoch > 0 and patience >= patience_limit else cfg.epochs
+        if end_epoch == start_epoch:
+            print(
+                f"[RESUME] early-stop state already reached at epoch={start_epoch}; "
+                "continuing with best-checkpoint evaluation",
+                flush=True,
+            )
         epoch_progress = tqdm(
-            range(start_epoch, cfg.epochs),
+            range(start_epoch, end_epoch),
             total=cfg.epochs,
             initial=start_epoch,
             desc=f"{cfg.experiment_id}/{cfg.dataset}/{cfg.variant}/seed_{cfg.model_seed}",
@@ -286,26 +320,41 @@ def execute_training_run(cfg: RevisionConfig, force: bool = False) -> dict:
                 "train_cross_dim_loss": train_metrics["cross"],
             }
             history.append(record)
+            improved = val_metrics["loss"] < (best - float(legacy_cfg.early_stop_min_delta))
+            if improved:
+                best = float(val_metrics["loss"])
+                best_epoch = epoch + 1
+                patience = 0
+            else:
+                patience += 1
             epoch_progress.set_postfix(
                 train_loss=f"{train_metrics['loss']:.6g}",
                 val_loss=f"{val_metrics['loss']:.6g}",
-                best_val=f"{min(best, val_metrics['loss']):.6g}",
+                best_val=f"{best:.6g}",
+                patience=f"{patience}/{legacy_cfg.early_stop_patience}",
             )
             checkpoint = {
                 "epoch": epoch + 1,
                 "model": model.state_dict(),
                 "optimizer": optimizer.state_dict(),
                 "history": history,
-                "best_val": min(best, val_metrics["loss"]),
+                "best_val": best,
+                "best_epoch": best_epoch,
+                "patience": patience,
                 "config_hash": cfg.config_hash,
                 "revision_config": cfg.to_dict(),
                 "sensor_names": nodes,
             }
             torch.save(checkpoint, last_path)
-            if val_metrics["loss"] < best:
-                best = val_metrics["loss"]
-                checkpoint["best_val"] = best
+            if improved:
                 torch.save(checkpoint, run_dir / "best.pt")
+            if patience >= patience_limit:
+                tqdm.write(
+                    f"[EARLY STOP] epoch={epoch + 1} best_epoch={best_epoch} "
+                    f"best_val={best:.6g}"
+                )
+                break
+        epoch_progress.close()
 
         pd.DataFrame(history).to_csv(run_dir / "history.csv", index=False, encoding="utf-8")
         write_json(run_dir / "history.json", history)
@@ -359,6 +408,9 @@ def execute_training_run(cfg: RevisionConfig, force: bool = False) -> dict:
             "config_hash": cfg.config_hash,
             "run_dir": str(run_dir),
             "best_val_loss": float(best),
+            "best_epoch": int(best_epoch),
+            "stopped_epoch": int(history[-1]["epoch"]),
+            "early_stopped": bool(history[-1]["epoch"] < cfg.epochs),
             "primary_metrics": primary,
             "legacy_integrity": integrity,
         }
