@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn as nn
+from tqdm.auto import tqdm
 
 from revision_experiments.core.integrity import verify_snapshot
 from revision_experiments.core.paths import BASELINE_SOURCE_PATH, EXTERNAL_ROOT
@@ -121,10 +122,19 @@ def run(cfg, force: bool = False) -> dict:
         mask_optimizer = torch.optim.Adam(model.mask_generator.parameters(), lr=params["mask_lr"])
         history: list[dict] = []
         best_val = math.inf
-        for epoch in range(params["epochs"]):
+        run_label = f"ex04/{cfg.dataset}/catch/seed_{cfg.model_seed}"
+        epoch_bar = tqdm(
+            range(params["epochs"]), desc=run_label, unit="epoch",
+            dynamic_ncols=True, mininterval=0.5,
+        )
+        for epoch in epoch_bar:
             model.train()
             train_losses = []
-            for batch in train_loader:
+            train_bar = tqdm(
+                train_loader, desc=f"CATCH train e{epoch + 1:03d}/{params['epochs']:03d}",
+                unit="batch", leave=False, dynamic_ncols=True, mininterval=0.5,
+            )
+            for batch in train_bar:
                 batch = batch.to(device, non_blocking=True).float()
                 optimizer.zero_grad(set_to_none=True)
                 mask_optimizer.zero_grad(set_to_none=True)
@@ -139,14 +149,22 @@ def run(cfg, force: bool = False) -> dict:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 optimizer.step()
                 mask_optimizer.step()
-                train_losses.append(float(loss.detach().cpu()))
+                current_loss = float(loss.detach().cpu())
+                train_losses.append(current_loss)
+                train_bar.set_postfix(loss=f"{current_loss:.6f}", refresh=False)
             model.eval()
             val_losses = []
             with torch.no_grad():
-                for batch in val_loader:
+                val_bar = tqdm(
+                    val_loader, desc=f"CATCH valid e{epoch + 1:03d}/{params['epochs']:03d}",
+                    unit="batch", leave=False, dynamic_ncols=True, mininterval=0.5,
+                )
+                for batch in val_bar:
                     batch = batch.to(device, non_blocking=True).float()
                     output, _, _ = model(batch)
-                    val_losses.append(float(reconstruction(output, batch).detach().cpu()))
+                    current_val = float(reconstruction(output, batch).detach().cpu())
+                    val_losses.append(current_val)
+                    val_bar.set_postfix(loss=f"{current_val:.6f}", refresh=False)
             train_loss = float(np.mean(train_losses))
             val_loss = float(np.mean(val_losses))
             history.append({"epoch": epoch + 1, "train_loss": train_loss, "val_loss": val_loss})
@@ -164,6 +182,10 @@ def run(cfg, force: bool = False) -> dict:
             if val_loss < best_val:
                 best_val = val_loss
                 torch.save(checkpoint, run_dir / "best.pt")
+            epoch_bar.set_postfix(
+                train=f"{train_loss:.6f}", val=f"{val_loss:.6f}", best=f"{best_val:.6f}",
+                refresh=True,
+            )
 
         checkpoint = torch.load(run_dir / "best.pt", map_location=device, weights_only=False)
         model.load_state_dict(checkpoint["model_state"], strict=True)
@@ -185,10 +207,12 @@ def run(cfg, force: bool = False) -> dict:
         validation_raw = score_split(
             bundle, "validation", standardizer, params["window"], params["score_stride"],
             params["batch_size"], params["max_score_windows_per_flight"], score_batch, device,
+            progress_desc=f"{run_label} score validation",
         )
         failure_raw = score_split(
             bundle, "failure", standardizer, params["window"], params["score_stride"],
             params["batch_size"], params["max_score_windows_per_flight"], score_batch, device,
+            progress_desc=f"{run_label} score failure",
         )
         write_json(run_dir / "normalization_stats.json", standardizer.to_dict())
         write_json(run_dir / "split_flights.json", {

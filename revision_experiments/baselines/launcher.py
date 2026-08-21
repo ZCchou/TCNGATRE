@@ -39,7 +39,7 @@ def execute_isolated_baseline(cfg, force: bool = False) -> dict:
     run_dir = cfg.run_dir
     run_dir.mkdir(parents=True, exist_ok=True)
     command = [
-        str(python), str(PACKAGE_ROOT / "baselines" / "run_adapter.py"),
+        str(python), "-u", str(PACKAGE_ROOT / "baselines" / "run_adapter.py"),
         "--baseline", cfg.variant, "--dataset", cfg.dataset, "--seed", str(cfg.model_seed),
     ]
     if cfg.smoke:

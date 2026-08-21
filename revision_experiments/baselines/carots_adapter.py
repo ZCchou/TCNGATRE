@@ -10,6 +10,7 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn.functional as F
+from tqdm.auto import tqdm
 
 from revision_experiments.core.integrity import verify_snapshot
 from revision_experiments.core.paths import BASELINE_SOURCE_PATH, EXTERNAL_ROOT
@@ -160,13 +161,23 @@ def run(cfg, force: bool = False) -> dict:
         data_optimizer = torch.optim.Adam(data_params, lr=params["causal_lr"])
         graph_optimizer = torch.optim.Adam([causal.GT], lr=params["graph_lr"])
         history: list[dict] = []
+        run_label = f"ex04/{cfg.dataset}/carots/seed_{cfg.model_seed}"
 
         # Official CUTS+ network, trained in its two phases on boundary-safe normal windows.
-        for epoch in range(params["causal_epochs"]):
+        causal_bar = tqdm(
+            range(params["causal_epochs"]), desc=f"{run_label} CUTS+",
+            unit="epoch", dynamic_ncols=True, mininterval=0.5,
+        )
+        for epoch in causal_bar:
             causal.train()
             prediction_losses = []
             graph_losses = []
-            for batch in train_loader:
+            train_bar = tqdm(
+                train_loader,
+                desc=f"CUTS+ train e{epoch + 1:03d}/{params['causal_epochs']:03d}",
+                unit="batch", leave=False, dynamic_ncols=True, mininterval=0.5,
+            )
+            for batch in train_bar:
                 batch = batch.to(device, non_blocking=True).float()
                 x, y = batch[:, :params["input_step"]], batch[:, params["input_step"]:]
                 probability = torch.sigmoid(causal.GT)
@@ -193,12 +204,22 @@ def run(cfg, force: bool = False) -> dict:
                 graph_loss.backward()
                 torch.nn.utils.clip_grad_norm_([causal.GT], 1.0)
                 graph_optimizer.step()
-                graph_losses.append(float(graph_loss.detach().cpu()))
+                current_graph_loss = float(graph_loss.detach().cpu())
+                graph_losses.append(current_graph_loss)
+                train_bar.set_postfix(
+                    pred=f"{prediction_losses[-1]:.6f}", graph=f"{current_graph_loss:.6f}",
+                    refresh=False,
+                )
+            mean_prediction = float(np.mean(prediction_losses))
+            mean_graph = float(np.mean(graph_losses))
             history.append({
                 "stage": "cuts_plus", "epoch": epoch + 1,
-                "train_loss": float(np.mean(prediction_losses)),
-                "graph_loss": float(np.mean(graph_losses)),
+                "train_loss": mean_prediction,
+                "graph_loss": mean_graph,
             })
+            causal_bar.set_postfix(
+                pred=f"{mean_prediction:.6f}", graph=f"{mean_graph:.6f}", refresh=True,
+            )
 
         causal.eval()
         model.positive_augmentor.set_causal_discoverer(causal)
@@ -209,10 +230,19 @@ def run(cfg, force: bool = False) -> dict:
         contrastive_params = [parameter for parameter in model.parameters() if parameter.requires_grad]
         optimizer = torch.optim.Adam(contrastive_params, lr=params["lr"], weight_decay=1e-4)
         best_val = math.inf
-        for epoch in range(params["contrastive_epochs"]):
+        contrastive_bar = tqdm(
+            range(params["contrastive_epochs"]), desc=f"{run_label} contrastive",
+            unit="epoch", dynamic_ncols=True, mininterval=0.5,
+        )
+        for epoch in contrastive_bar:
             model.train()
             train_losses = []
-            for batch in train_loader:
+            train_bar = tqdm(
+                train_loader,
+                desc=f"CAROTS train e{epoch + 1:03d}/{params['contrastive_epochs']:03d}",
+                unit="batch", leave=False, dynamic_ncols=True, mininterval=0.5,
+            )
+            for batch in train_bar:
                 batch = batch.to(device, non_blocking=True).float()
                 optimizer.zero_grad(set_to_none=True)
                 output = model(batch, positive_augment=True, negative_augment=True)
@@ -222,16 +252,25 @@ def run(cfg, force: bool = False) -> dict:
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(contrastive_params, 0.5)
                 optimizer.step()
-                train_losses.append(float(loss.detach().cpu()))
+                current_loss = float(loss.detach().cpu())
+                train_losses.append(current_loss)
+                train_bar.set_postfix(loss=f"{current_loss:.6f}", refresh=False)
             model.eval()
             val_losses = []
             with torch.no_grad():
-                for batch in val_loader:
+                val_bar = tqdm(
+                    val_loader,
+                    desc=f"CAROTS valid e{epoch + 1:03d}/{params['contrastive_epochs']:03d}",
+                    unit="batch", leave=False, dynamic_ncols=True, mininterval=0.5,
+                )
+                for batch in val_bar:
                     batch = batch.to(device, non_blocking=True).float()
                     output = model(batch, positive_augment=True, negative_augment=True)
                     val_loss = loss_fn(output, official_cfg)
                     if torch.isfinite(val_loss):
-                        val_losses.append(float(val_loss.detach().cpu()))
+                        current_val = float(val_loss.detach().cpu())
+                        val_losses.append(current_val)
+                        val_bar.set_postfix(loss=f"{current_val:.6f}", refresh=False)
             mean_train = float(np.mean(train_losses))
             mean_val = float(np.mean(val_losses)) if val_losses else mean_train
             history.append({"stage": "carots", "epoch": epoch + 1, "train_loss": mean_train, "val_loss": mean_val})
@@ -248,6 +287,10 @@ def run(cfg, force: bool = False) -> dict:
             if mean_val < best_val:
                 best_val = mean_val
                 torch.save(checkpoint, run_dir / "best.pt")
+            contrastive_bar.set_postfix(
+                train=f"{mean_train:.6f}", val=f"{mean_val:.6f}", best=f"{best_val:.6f}",
+                refresh=True,
+            )
 
         checkpoint = torch.load(run_dir / "best.pt", map_location=device, weights_only=False)
         model.load_state_dict(checkpoint["model_state"], strict=True)
@@ -257,7 +300,10 @@ def run(cfg, force: bool = False) -> dict:
         # each normalized using normal training scores only.
         centroid_parts = []
         with torch.no_grad():
-            for batch in train_score_loader:
+            for batch in tqdm(
+                train_score_loader, desc=f"{run_label} fit centroid",
+                unit="batch", dynamic_ncols=True, mininterval=0.5,
+            ):
                 batch = batch.to(device, non_blocking=True).float()
                 output = model(batch, positive_augment=True, negative_augment=True)
                 centroid_parts.append(output[:len(output) // 2])
@@ -278,7 +324,10 @@ def run(cfg, force: bool = False) -> dict:
         train_l2 = []
         train_causal = []
         with torch.no_grad():
-            for batch in train_score_loader:
+            for batch in tqdm(
+                train_score_loader, desc=f"{run_label} fit score normalization",
+                unit="batch", dynamic_ncols=True, mininterval=0.5,
+            ):
                 l2, causal_score = components(batch.to(device, non_blocking=True).float())
                 train_l2.append(l2.detach().cpu().numpy())
                 train_causal.append(causal_score.detach().cpu().numpy())
@@ -294,10 +343,12 @@ def run(cfg, force: bool = False) -> dict:
         validation_raw = score_split(
             bundle, "validation", standardizer, params["window"], params["score_stride"],
             params["batch_size"], params["max_score_windows_per_flight"], score_batch, device,
+            progress_desc=f"{run_label} score validation",
         )
         failure_raw = score_split(
             bundle, "failure", standardizer, params["window"], params["score_stride"],
             params["batch_size"], params["max_score_windows_per_flight"], score_batch, device,
+            progress_desc=f"{run_label} score failure",
         )
         np.save(run_dir / "causality_matrix.npy", model.causal_discoverer.causality_mtx.detach().cpu().numpy())
         write_json(run_dir / "normalization_stats.json", standardizer.to_dict())

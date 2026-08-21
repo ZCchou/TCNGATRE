@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import math
 import random
 from dataclasses import dataclass
 from pathlib import Path
@@ -11,6 +12,7 @@ import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import DataLoader, Dataset
+from tqdm.auto import tqdm
 
 from revision_experiments.core.paths import REPO_ROOT, RESULTS_ROOT
 from revision_experiments.scoring.aggregators import ema
@@ -213,12 +215,34 @@ def score_split(
     max_windows_per_flight: int | None,
     score_batch: Callable[[torch.Tensor], tuple[np.ndarray, np.ndarray | None]],
     device: torch.device,
+    progress_desc: str | None = None,
 ) -> pd.DataFrame:
     rows: list[dict] = []
-    for record, time, values, starts in iter_scoring_flights(
+    flights = iter_scoring_flights(
         bundle, split, standardizer, window, stride, max_windows_per_flight
-    ):
-        for batch_starts, windows in batch_windows(values, starts, window, batch_size):
+    )
+    if progress_desc:
+        flights = tqdm(
+            flights,
+            total=len(bundle.splits[split]),
+            desc=progress_desc,
+            unit="flight",
+            dynamic_ncols=True,
+            mininterval=0.5,
+        )
+    for record, time, values, starts in flights:
+        batches = batch_windows(values, starts, window, batch_size)
+        if progress_desc:
+            batches = tqdm(
+                batches,
+                total=math.ceil(len(starts) / int(batch_size)),
+                desc=f"score {record.flight[:32]}",
+                unit="batch",
+                leave=False,
+                dynamic_ncols=True,
+                mininterval=0.5,
+            )
+        for batch_starts, windows in batches:
             total, channel = score_batch(torch.from_numpy(windows).to(device))
             total = np.asarray(total, dtype=np.float64).reshape(-1)
             if len(total) != len(batch_starts):
