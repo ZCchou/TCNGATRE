@@ -57,11 +57,22 @@ def _device(legacy_cfg) -> torch.device:
     return torch.device(legacy_cfg.device)
 
 
-def _run_epoch(model, loader, a, m, legacy_cfg, device, optimizer=None) -> dict[str, float]:
+def _run_epoch(
+    model, loader, a, m, legacy_cfg, device, optimizer=None, progress_desc: str | None = None
+) -> dict[str, float]:
     training = optimizer is not None
     model.train(training)
     totals = {"loss": 0.0, "value": 0.0, "delta": 0.0, "cross": 0.0, "batches": 0}
-    for batch in loader:
+    batches = tqdm(
+        loader,
+        desc=progress_desc,
+        unit="batch",
+        leave=False,
+        dynamic_ncols=False,
+        mininterval=5.0,
+        disable=progress_desc is None,
+    )
+    for batch in batches:
         x = batch["x"].to(device).float()
         y = batch["y"].to(device).float()
         if training:
@@ -84,6 +95,11 @@ def _run_epoch(model, loader, a, m, legacy_cfg, device, optimizer=None) -> dict[
         totals["delta"] += float(losses["delta_loss"].detach().cpu())
         totals["cross"] += float(cross.detach().cpu())
         totals["batches"] += 1
+        batches.set_postfix(
+            loss=f"{totals['loss'] / totals['batches']:.6g}",
+            cross=f"{totals['cross'] / totals['batches']:.6g}",
+            refresh=False,
+        )
     denom = max(totals.pop("batches"), 1)
     return {key: value / denom for key, value in totals.items()}
 
@@ -242,9 +258,27 @@ def execute_training_run(cfg: RevisionConfig, force: bool = False) -> dict:
             dynamic_ncols=False,
         )
         for epoch in epoch_progress:
-            train_metrics = _run_epoch(model, train_loader, a, m, legacy_cfg, device, optimizer)
+            train_metrics = _run_epoch(
+                model,
+                train_loader,
+                a,
+                m,
+                legacy_cfg,
+                device,
+                optimizer,
+                progress_desc=f"train e{epoch + 1:03d}/{cfg.epochs}",
+            )
             with torch.no_grad():
-                val_metrics = _run_epoch(model, val_loader, a, m, legacy_cfg, device, None)
+                val_metrics = _run_epoch(
+                    model,
+                    val_loader,
+                    a,
+                    m,
+                    legacy_cfg,
+                    device,
+                    None,
+                    progress_desc=f"val   e{epoch + 1:03d}/{cfg.epochs}",
+                )
             record = {
                 "epoch": epoch + 1,
                 "train_loss": train_metrics["loss"],
