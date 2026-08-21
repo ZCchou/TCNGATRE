@@ -32,9 +32,11 @@
       "old_sha256": "82c1ef7d92c733d62c985c3277922b1481167c8b3a780111898fdbc4bf359369",
       "new_sha256": "3d4637136cd0787fbfa562fa84f1f711f9d3579509ab5ebd3a2cb8594a124fd3",
       "accepted_old_sha256": [
+        "85c9b6fb21cc796ae8c2d54242ff44f69588da67ee4b7941b5e840de864a7682",
         "82c1ef7d92c733d62c985c3277922b1481167c8b3a780111898fdbc4bf359369"
       ],
       "accepted_new_sha256": [
+        "1e663c764e3fe88e88098fa160670add9d453e0d180ee425efa578e1503f724d",
         "3d4637136cd0787fbfa562fa84f1f711f9d3579509ab5ebd3a2cb8594a124fd3"
       ],
       "reason": "Apply the manifest-declared train-only prefailure policy so ALFA uses 29 train, 1 validation, and 16 failure flights, with strict count and overlap validation.",
@@ -45,9 +47,11 @@
       "old_sha256": "3ed2fb91edb03aaf2bd4837fbb32752860d52460306a2d0f74310a60b1cdd99a",
       "new_sha256": "f9fea2468b2afe7ee4e13cba4664da9944b95853f6ee50f7e7128f0dfa4ebb85",
       "accepted_old_sha256": [
+        "ffae2f6eda53c467f85b099f78d585876b6841b9edef38ab4c01f127e7a5b014",
         "3ed2fb91edb03aaf2bd4837fbb32752860d52460306a2d0f74310a60b1cdd99a"
       ],
       "accepted_new_sha256": [
+        "df0ab9df01fb1f387d354149703861126c1eb2ddda9f5caf871b294eaf72b33f",
         "9bb3e770ae2323902608f5827863d7b5443f7a718f26abb734025baf23f2f550",
         "f9fea2468b2afe7ee4e13cba4664da9944b95853f6ee50f7e7128f0dfa4ebb85"
       ],
@@ -59,9 +63,11 @@
       "old_sha256": "a9403ad7b05f944c40685f131ada0fd1c9c2fd0b21fbd72f9a9fcf0983ea9e6f",
       "new_sha256": "ef50328c2c4dbbd91c0fb79336c818a04a01924bc5a880685fb62ac0d8aeaa9b",
       "accepted_old_sha256": [
+        "d9e7df40a380f5c7ff7d1aa3143a7000a06d8c81e772e9f0e9220602e142bce5",
         "a9403ad7b05f944c40685f131ada0fd1c9c2fd0b21fbd72f9a9fcf0983ea9e6f"
       ],
       "accepted_new_sha256": [
+        "e62bd7bc2725e0b9b9cb6d1fce5dd04d8d95e8b88487306faac2f5f54db668d8",
         "ef50328c2c4dbbd91c0fb79336c818a04a01924bc5a880685fb62ac0d8aeaa9b"
       ],
       "reason": "Propagate MIC worker failures instead of silently writing an empty graph, and record the exact number of completed sensor-pair computations.",

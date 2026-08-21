@@ -180,7 +180,7 @@ def command_doctor(_args) -> int:
 
 
 def command_verify(_args) -> int:
-    print(json.dumps(verify_snapshot(), ensure_ascii=False, indent=2))
+    print(json.dumps(verify_snapshot(strict=True), ensure_ascii=False, indent=2))
     return 0
 
 

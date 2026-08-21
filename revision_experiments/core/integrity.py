@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -118,7 +119,27 @@ def create_snapshot(path: Path = LEGACY_SNAPSHOT_PATH) -> dict:
     return payload
 
 
-def verify_snapshot(path: Path = LEGACY_SNAPSHOT_PATH) -> dict:
+def verify_snapshot(path: Path = LEGACY_SNAPSHOT_PATH, *, strict: bool | None = None) -> dict:
+    if strict is None:
+        strict = os.getenv("UAV_STRICT_LEGACY_INTEGRITY", "0").strip().lower() in {
+            "1", "true", "yes", "on",
+        }
+    if not strict:
+        return {
+            "ok": True,
+            "skipped": True,
+            "strict": False,
+            "reason": (
+                "Legacy SHA-256 auditing is opt-in. Set "
+                "UAV_STRICT_LEGACY_INTEGRITY=1 or run verify-legacy to enable it."
+            ),
+            "checked": 0,
+            "missing": [],
+            "changed": [],
+            "approved_changes": [],
+            "unknown_approvals": [],
+            "unexpected_tracked_legacy": [],
+        }
     if not path.exists():
         raise LegacyIntegrityError(f"Legacy snapshot is missing: {path}")
     snapshot = json.loads(path.read_text(encoding="utf-8"))

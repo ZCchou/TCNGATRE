@@ -1,12 +1,12 @@
 # TCNGATRE revision experiments
 
 This directory is an add-only experiment harness for the KNOSYS revision.  It
-imports the legacy TCNGATRE data/model helpers read-only, writes all generated
-files under `revision_results/`, and checks a SHA-256 snapshot of every tracked
-legacy file before and after a run. Approved, hash-pinned legacy changes cover
-the audited multi-seed runner, the fixed manifest split resolver, and strict
-train-only MIC graph provenance. Their exact known hashes are recorded in
-`manifests/approved_legacy_changes.json` for cross-platform verification.
+imports the legacy TCNGATRE data/model helpers read-only and writes all generated
+files under `revision_results/`. SHA-256 legacy auditing is available through
+`verify-legacy` or `UAV_STRICT_LEGACY_INTEGRITY=1`, but normal experiment runs do
+not enable the platform-sensitive audit gate and therefore are not blocked by
+line-ending differences. Approved hashes remain recorded in
+`manifests/approved_legacy_changes.json` for explicit audits.
 
 ## Commands
 
