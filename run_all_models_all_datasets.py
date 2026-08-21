@@ -22,6 +22,7 @@ DEFAULT_RESULT_ROOT = ROOT / "revision_results" / "protocol_v1" / "main_comparis
 DEFAULT_SMOKE_RESULT_ROOT = ROOT / "revision_results" / "protocol_v1" / "main_comparison_smoke"
 DETERMINISTIC_ENTRYPOINT = REVISION_ROOT / "main_comparison" / "deterministic_entrypoint.py"
 DEFAULT_TCNGATRE_GPS_BATCH_SIZE = 16
+DEFAULT_TCNGATRE_ALFA_SAMPLE_STRIDE = 16
 
 MODEL_ORDER = [
     "USAD",
@@ -278,6 +279,16 @@ def parse_args(argv: list[str] | None = None):
         ),
     )
     parser.add_argument(
+        "--tcngatre-alfa-sample-stride",
+        type=int,
+        default=DEFAULT_TCNGATRE_ALFA_SAMPLE_STRIDE,
+        help=(
+            "Window stride used only by seeded formal TCNGATRE runs on ALFA. "
+            f"Defaults to {DEFAULT_TCNGATRE_ALFA_SAMPLE_STRIDE}; other datasets keep their "
+            "native stride and smoke runs keep stride 64."
+        ),
+    )
+    parser.add_argument(
         "--force",
         action="store_true",
         help="Rerun seeded stages even when matching completion markers already exist.",
@@ -313,6 +324,8 @@ def parse_args(argv: list[str] | None = None):
         parser.error("--seeds values must be non-negative integers")
     if int(args.tcngatre_gps_batch_size) < 1:
         parser.error("--tcngatre-gps-batch-size must be a positive integer")
+    if int(args.tcngatre_alfa_sample_stride) < 1:
+        parser.error("--tcngatre-alfa-sample-stride must be a positive integer")
     return args
 
 
@@ -359,6 +372,7 @@ def _seeded_env(
     determinism: str,
     plots: bool,
     tcngatre_gps_batch_size: int,
+    tcngatre_alfa_sample_stride: int,
 ) -> dict[str, str]:
     names = MODEL_ENV[model]
     env = {
@@ -373,6 +387,10 @@ def _seeded_env(
     if model == "TCNGATRE":
         graph_root = result_root / "_shared" / "tcngatre_graph" / dataset
         env["UAV_TCNGATRE_GRAPH_DIR"] = str(graph_root)
+        if smoke:
+            env["UAV_TCNGATRE_SAMPLE_STRIDE"] = "64"
+        elif dataset == "alfa":
+            env["UAV_TCNGATRE_SAMPLE_STRIDE"] = str(int(tcngatre_alfa_sample_stride))
         if dataset == "gpsdata":
             env["UAV_TCNGATRE_BATCH_SIZE"] = str(int(tcngatre_gps_batch_size))
     plot_value = "1" if plots and not smoke else "0"
@@ -381,8 +399,6 @@ def _seeded_env(
         env[names["plot_compare"]] = plot_value
     if smoke:
         env[names["epochs"]] = "1"
-        if model == "TCNGATRE":
-            env["UAV_TCNGATRE_SAMPLE_STRIDE"] = "64"
     return env
 
 
@@ -420,6 +436,7 @@ def build_job_specs(args) -> tuple[list[JobSpec], Path]:
                         str(args.determinism),
                         bool(args.plots),
                         int(args.tcngatre_gps_batch_size),
+                        int(args.tcngatre_alfa_sample_stride),
                     )
                 )
                 for stage in stages:
@@ -639,6 +656,10 @@ def _run_rows(jobs: list[JobSpec]) -> list[dict]:
                 "determinism": job.determinism,
                 "plots": bool(job.plots),
                 "data_protocol_signature": job.data_protocol_signature,
+                "sample_stride": (
+                    int(job.env_overrides.get("UAV_TCNGATRE_SAMPLE_STRIDE", "4"))
+                    if job.model == "TCNGATRE" else None
+                ),
                 "run_root": str(job.run_root),
                 "stages": ",".join(MODEL_SCRIPTS[job.model]),
             }
@@ -672,12 +693,16 @@ def _write_provenance(run_rows: list[dict], jobs: list[JobSpec], force: bool) ->
         run_jobs = grouped[row["run_id"]]
         run_root = Path(row["run_root"])
         provenance_path = run_root / "provenance.json"
+        desired_stage_signatures = {job.stage: job.signature for job in run_jobs}
         if provenance_path.exists() and not force:
             try:
                 existing = json.loads(provenance_path.read_text(encoding="utf-8"))
             except (OSError, ValueError, TypeError):
                 existing = {}
-            if existing.get("data_protocol_signature") == row.get("data_protocol_signature"):
+            if (
+                existing.get("data_protocol_signature") == row.get("data_protocol_signature")
+                and existing.get("stage_signatures") == desired_stage_signatures
+            ):
                 continue
         first = run_jobs[0]
         payload = {
@@ -686,7 +711,7 @@ def _write_provenance(run_rows: list[dict], jobs: list[JobSpec], force: bool) ->
             "created_at_utc": datetime.now(timezone.utc).isoformat(),
             "env_overrides": first.env_overrides,
             "commands": {job.stage: job.command for job in run_jobs},
-            "stage_signatures": {job.stage: job.signature for job in run_jobs},
+            "stage_signatures": desired_stage_signatures,
             "randomness_policy": (
                 "fixed Python/NumPy/PyTorch/CUDA seeds; optimized CUDA kernels allowed"
                 if row["determinism"] == "seeded"
@@ -705,6 +730,9 @@ def _prepare_seeded_outputs(jobs: list[JobSpec], batch_root: Path, force: bool) 
     if not run_rows:
         return []
     result_root = Path(run_rows[0]["run_root"]).parents[2]
+    jobs_by_run: dict[str, list[JobSpec]] = {}
+    for job in jobs:
+        jobs_by_run.setdefault(job.run_id, []).append(job)
     if force:
         for row in run_rows:
             run_root = Path(row["run_root"])
@@ -712,6 +740,14 @@ def _prepare_seeded_outputs(jobs: list[JobSpec], batch_root: Path, force: bool) 
                 marker = run_root / name
                 if marker.is_file():
                     marker.unlink()
+    else:
+        for row in run_rows:
+            selected_jobs = jobs_by_run[row["run_id"]]
+            if all(_stage_is_complete(job) for job in selected_jobs):
+                continue
+            stale_done = Path(row["run_root"]) / "DONE.json"
+            if stale_done.is_file():
+                stale_done.unlink()
     _write_csv(result_root / "run_manifest.csv", run_rows)
     _write_csv(batch_root / "run_manifest.csv", run_rows)
     _write_provenance(run_rows, jobs, force=force)
@@ -743,6 +779,10 @@ def _finalize_seeded_runs(jobs: list[JobSpec]) -> None:
             "run_id": run_id, "dataset": template.dataset, "model": template.model,
             "model_seed": template.seed, "data_split_policy": "fixed dataset manifest",
             "data_protocol_signature": template.data_protocol_signature,
+            "sample_stride": (
+                int(template.env_overrides.get("UAV_TCNGATRE_SAMPLE_STRIDE", "4"))
+                if template.model == "TCNGATRE" else None
+            ),
             "stages": status_by_stage,
             "finished_at_utc": datetime.now(timezone.utc).isoformat(),
         }
@@ -777,6 +817,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[BATCH] isolated_runs={len(run_rows)}")
         print(f"[BATCH] seeds={_unique_seeds(list(args.seeds))}")
         print(f"[BATCH] result_root={resolve_result_root(args)}")
+        if "TCNGATRE" in args.models:
+            resolved_stride = 64 if args.smoke else int(args.tcngatre_alfa_sample_stride)
+            print(f"[BATCH] tcngatre_alfa_sample_stride={resolved_stride}")
     print(f"[BATCH] stage_jobs={len(jobs)}")
     for job in jobs:
         seed_text = "" if job.seed is None else f" | seed={job.seed}"

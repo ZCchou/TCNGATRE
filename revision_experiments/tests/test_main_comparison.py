@@ -108,6 +108,61 @@ class MainComparisonPlanningTests(unittest.TestCase):
                 )
             )
 
+    def test_only_alfa_tcngatre_uses_larger_formal_stride(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            args = runner.parse_args(
+                [
+                    "--models", "USAD", "TCNGATRE",
+                    "--datasets", "alfa", "gpsdata", "simulate",
+                    "--seeds", "0",
+                    "--result-root", temporary,
+                ]
+            )
+            jobs, _ = runner.build_job_specs(args)
+            train_jobs = [job for job in jobs if job.stage == "train"]
+            alfa_tcngatre = next(
+                job for job in train_jobs
+                if job.model == "TCNGATRE" and job.dataset == "alfa"
+            )
+            self.assertEqual(
+                alfa_tcngatre.env_overrides["UAV_TCNGATRE_SAMPLE_STRIDE"], "16"
+            )
+            self.assertTrue(
+                all(
+                    "UAV_TCNGATRE_SAMPLE_STRIDE" not in job.env_overrides
+                    for job in train_jobs
+                    if job.model == "TCNGATRE" and job.dataset != "alfa"
+                )
+            )
+            self.assertTrue(
+                all(
+                    "UAV_TCNGATRE_SAMPLE_STRIDE" not in job.env_overrides
+                    for job in train_jobs if job.model != "TCNGATRE"
+                )
+            )
+            run_rows = runner._run_rows(jobs)
+            stride_by_run = {
+                row["run_id"]: row["sample_stride"]
+                for row in run_rows if row["model"] == "TCNGATRE"
+            }
+            self.assertEqual(stride_by_run["alfa/TCNGATRE/seed_0"], 16)
+            self.assertEqual(stride_by_run["gpsdata/TCNGATRE/seed_0"], 4)
+            self.assertEqual(stride_by_run["simulate/TCNGATRE/seed_0"], 4)
+
+            alfa_run_root = Path(alfa_tcngatre.run_root)
+            alfa_run_root.mkdir(parents=True, exist_ok=True)
+            (alfa_run_root / "DONE.json").write_text(
+                json.dumps({"status": "complete", "sample_stride": 4}), encoding="utf-8"
+            )
+            alfa_tcngatre.stage_marker.parent.mkdir(parents=True, exist_ok=True)
+            alfa_tcngatre.stage_marker.write_text(
+                json.dumps({"status": "ok", "signature": "old_stride_4"}), encoding="utf-8"
+            )
+            runner._prepare_seeded_outputs(
+                jobs, Path(temporary) / "batch", force=False
+            )
+            self.assertFalse((alfa_run_root / "DONE.json").exists())
+
     def test_tcngatre_stage_signatures_include_fixed_data_protocol(self):
         with tempfile.TemporaryDirectory() as temporary:
             args = runner.parse_args(

@@ -30,6 +30,8 @@ static-only, dynamic-only, learned scalar fusion, and a shuffled-MIC prior.
 This expands to 7 variants x 3 datasets x 5 seeds = 105 runs. Repeating the
 same run command resumes partial checkpoints and reuses a completed run only
 when both its resolved configuration hash and current data-protocol hash match.
+Formal ALFA ablation runs use window stride 16 to reduce the 29-flight training
+window count; GPSData and Simulate retain stride 4. Smoke stride remains 64.
 
 ```powershell
 python -u revision_experiments/run_revision.py run --preset core_ablation --datasets all --seeds 0,1,2,3,4 --manifest-name core_ablation_5seed.csv
@@ -72,6 +74,14 @@ GPSData therefore use a targeted physical batch size of 16 to avoid quadratic
 graph-memory OOMs; every other model/dataset keeps its native batch size. The
 override is recorded in each stage signature and provenance file and can be
 changed explicitly with `--tcngatre-gps-batch-size`.
+
+Seeded formal TCNGATRE runs on ALFA use sample stride 16 for training,
+validation, and failure inference, reducing the window count to roughly one
+quarter of stride 4. TCNGATRE on GPSData and Simulate, and every other model,
+remain unchanged. The ALFA value can be overridden with
+`--tcngatre-alfa-sample-stride`; it is recorded in manifests, provenance,
+stage signatures, and completion markers so stride-4 ALFA results are rerun
+instead of being mixed into the new summary.
 
 The primary comparison collector uses only the Micro result selected from the
 global `summary_metrics.csv` row with `threshold_method=spot` and

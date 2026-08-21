@@ -81,6 +81,11 @@
     "early_stop_patience": 5,
     "early_stop_min_delta": 0.0001
   },
+  "dataset_training_overrides": {
+    "alfa": {
+      "stride": 16
+    }
+  },
   "smoke": {
     "epochs": 1,
     "lookback": 16,

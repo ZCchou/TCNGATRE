@@ -200,7 +200,9 @@ def make_config(
     protocol: dict[str, Any] | None = None,
 ) -> RevisionConfig:
     spec = load_protocol() if protocol is None else protocol
-    training = spec["smoke" if smoke else "training"]
+    training = dict(spec["smoke" if smoke else "training"])
+    if not smoke:
+        training.update(spec.get("dataset_training_overrides", {}).get(dataset, {}))
     aggregator = variant if experiment_id == "ex05" else "mean"
     corruption_kind = "none"
     corruption_level = 0.0

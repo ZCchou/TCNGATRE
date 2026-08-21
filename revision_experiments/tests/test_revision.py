@@ -200,12 +200,19 @@ class RevisionTrainingParityTests(unittest.TestCase):
         self.assertEqual(cfg.epochs, 100)
         self.assertEqual(cfg.batch_size, 128)
         self.assertEqual(cfg.lookback, 128)
+        self.assertEqual(cfg.stride, 16)
         self.assertEqual(cfg.d_model, 64)
         self.assertEqual(cfg.tcn_layers, 5)
         self.assertEqual(cfg.tcn_blocks, 4)
         self.assertTrue(legacy.cross_dim_loss_enabled)
         self.assertEqual(legacy.early_stop_patience, 5)
         self.assertAlmostEqual(legacy.early_stop_min_delta, 1e-4)
+
+    def test_only_alfa_formal_revision_runs_use_larger_stride(self):
+        self.assertEqual(make_config("ex01", "alfa", "full", 0).stride, 16)
+        self.assertEqual(make_config("ex01", "gpsdata", "full", 0).stride, 4)
+        self.assertEqual(make_config("ex01", "simulate", "full", 0).stride, 4)
+        self.assertEqual(make_config("ex01", "alfa", "full", 0, smoke=True).stride, 64)
 
     def test_seeded_mode_does_not_force_slow_deterministic_kernels(self):
         previous_algorithms = torch.are_deterministic_algorithms_enabled()
