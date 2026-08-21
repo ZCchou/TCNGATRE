@@ -4,7 +4,7 @@
     {
       "path": "run_all_models_all_datasets.py",
       "old_sha256": "eb55858556e73872d5dab6892a2e412b13b13e2cfd452e9d7a6a711fc855baf8",
-      "new_sha256": "c0a8de2409d5055605e8abe2578ddbf746f1d6cae98097565a1fa321840826de",
+      "new_sha256": "ce1cc399fb7c8a0dc9850b92369f247fcf13ddaecceebbfa834591f9bdcd7842",
       "accepted_old_sha256": [
         "eb55858556e73872d5dab6892a2e412b13b13e2cfd452e9d7a6a711fc855baf8",
         "92a6f59ac8f09789c9cba39cc9df520bfe1604ed472714fcfe25eaca86526836",
@@ -15,6 +15,8 @@
         "fb78df7e649643232a4318d81851da3ceee507d05e2378a481862dd1f053e243"
       ],
       "accepted_new_sha256": [
+        "ce1cc399fb7c8a0dc9850b92369f247fcf13ddaecceebbfa834591f9bdcd7842",
+        "918272fdf3ce5e3d3c6bcf543c812acc403d9ad22d7dd03032d002734afe74cc",
         "c0a8de2409d5055605e8abe2578ddbf746f1d6cae98097565a1fa321840826de",
         "0f75569593b3fa7cb2038bad87baef71894499db8198e2ae609f1bfe82e2e11e",
         "eba5e7b58de20ab7e7c6ae0cf32d38eb58888fd5561a5154fa7d94852130bc1b",
@@ -26,7 +28,7 @@
         "fb78df7e649643232a4318d81851da3ceee507d05e2378a481862dd1f053e243",
         "c5d6b9324a84f3f021f7754d6a7439c391ca3867ac25f9af65825ccaa1a7424d"
       ],
-      "reason": "Add audited multi-seed orchestration, isolated outputs, deterministic launching, resume markers, result collection, a GPSData-only memory-safe batch override, and an ALFA-only TCNGATRE stride-16 override recorded in stage signatures and provenance.",
+      "reason": "Add audited multi-seed orchestration, isolated outputs, deterministic launching, resume markers, result collection, a GPSData-only TCNGATRE batch-32 override, and an ALFA-only TCNGATRE stride-16 override recorded in stage signatures and provenance.",
       "approved_at": "2026-08-22"
     },
     {

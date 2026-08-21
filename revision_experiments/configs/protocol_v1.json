@@ -84,6 +84,9 @@
   "dataset_training_overrides": {
     "alfa": {
       "stride": 16
+    },
+    "gpsdata": {
+      "batch_size": 32
     }
   },
   "smoke": {

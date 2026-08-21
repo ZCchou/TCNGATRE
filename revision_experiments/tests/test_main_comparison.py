@@ -82,14 +82,13 @@ class MainComparisonPlanningTests(unittest.TestCase):
             self.assertEqual(train.env_overrides["UAV_TCNGATRE_PLOT_SCORES"], "0")
             self.assertIn("seeded", train.command)
 
-    def test_tcngatre_gps_uses_targeted_memory_safe_batch(self):
+    def test_tcngatre_gps_uses_default_batch_32(self):
         with tempfile.TemporaryDirectory() as temporary:
             args = runner.parse_args(
                 [
                     "--models", "USAD", "TCNGATRE",
                     "--datasets", "gpsdata", "simulate",
                     "--seeds", "0",
-                    "--tcngatre-gps-batch-size", "16",
                     "--result-root", temporary,
                 ]
             )
@@ -99,7 +98,12 @@ class MainComparisonPlanningTests(unittest.TestCase):
                 job for job in train_jobs
                 if job.model == "TCNGATRE" and job.dataset == "gpsdata"
             )
-            self.assertEqual(gps_tcngatre.env_overrides["UAV_TCNGATRE_BATCH_SIZE"], "16")
+            self.assertEqual(gps_tcngatre.env_overrides["UAV_TCNGATRE_BATCH_SIZE"], "32")
+            gps_row = next(
+                row for row in runner._run_rows(jobs)
+                if row["model"] == "TCNGATRE" and row["dataset"] == "gpsdata"
+            )
+            self.assertEqual(gps_row["batch_size"], 32)
             self.assertTrue(
                 all(
                     "UAV_TCNGATRE_BATCH_SIZE" not in job.env_overrides

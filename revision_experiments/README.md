@@ -31,7 +31,9 @@ This expands to 7 variants x 3 datasets x 5 seeds = 105 runs. Repeating the
 same run command resumes partial checkpoints and reuses a completed run only
 when both its resolved configuration hash and current data-protocol hash match.
 Formal ALFA ablation runs use window stride 16 to reduce the 29-flight training
-window count; GPSData and Simulate retain stride 4. Smoke stride remains 64.
+window count; GPSData and Simulate retain stride 4. Formal GPSData ablation
+runs use batch size 32, while ALFA and Simulate retain batch size 128. Smoke
+stride and batch size remain 64 and 32, respectively.
 
 ```powershell
 python -u revision_experiments/run_revision.py run --preset core_ablation --datasets all --seeds 0,1,2,3,4 --manifest-name core_ablation_5seed.csv
@@ -70,8 +72,9 @@ from the original single-seed commands; the GPSData memory override below is
 the only seeded batch-size exception.
 
 GPSData has substantially more sensor nodes than ALFA. Seeded TCNGATRE runs on
-GPSData therefore use a targeted physical batch size of 16 to avoid quadratic
-graph-memory OOMs; every other model/dataset keeps its native batch size. The
+GPSData therefore use a targeted physical batch size of 32 to reduce graph
+memory use while retaining better GPU utilization than the former value 16;
+every other model/dataset keeps its native batch size. The
 override is recorded in each stage signature and provenance file and can be
 changed explicitly with `--tcngatre-gps-batch-size`.
 

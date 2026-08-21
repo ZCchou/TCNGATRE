@@ -21,7 +21,7 @@ REVISION_ROOT = ROOT / "revision_experiments"
 DEFAULT_RESULT_ROOT = ROOT / "revision_results" / "protocol_v1" / "main_comparison"
 DEFAULT_SMOKE_RESULT_ROOT = ROOT / "revision_results" / "protocol_v1" / "main_comparison_smoke"
 DETERMINISTIC_ENTRYPOINT = REVISION_ROOT / "main_comparison" / "deterministic_entrypoint.py"
-DEFAULT_TCNGATRE_GPS_BATCH_SIZE = 16
+DEFAULT_TCNGATRE_GPS_BATCH_SIZE = 32
 DEFAULT_TCNGATRE_ALFA_SAMPLE_STRIDE = 16
 
 MODEL_ORDER = [
@@ -660,6 +660,10 @@ def _run_rows(jobs: list[JobSpec]) -> list[dict]:
                     int(job.env_overrides.get("UAV_TCNGATRE_SAMPLE_STRIDE", "4"))
                     if job.model == "TCNGATRE" else None
                 ),
+                "batch_size": (
+                    int(job.env_overrides.get("UAV_TCNGATRE_BATCH_SIZE", "128"))
+                    if job.model == "TCNGATRE" else None
+                ),
                 "run_root": str(job.run_root),
                 "stages": ",".join(MODEL_SCRIPTS[job.model]),
             }
@@ -783,6 +787,10 @@ def _finalize_seeded_runs(jobs: list[JobSpec]) -> None:
                 int(template.env_overrides.get("UAV_TCNGATRE_SAMPLE_STRIDE", "4"))
                 if template.model == "TCNGATRE" else None
             ),
+            "batch_size": (
+                int(template.env_overrides.get("UAV_TCNGATRE_BATCH_SIZE", "128"))
+                if template.model == "TCNGATRE" else None
+            ),
             "stages": status_by_stage,
             "finished_at_utc": datetime.now(timezone.utc).isoformat(),
         }
@@ -820,6 +828,8 @@ def main(argv: list[str] | None = None) -> int:
         if "TCNGATRE" in args.models:
             resolved_stride = 64 if args.smoke else int(args.tcngatre_alfa_sample_stride)
             print(f"[BATCH] tcngatre_alfa_sample_stride={resolved_stride}")
+            if "gpsdata" in args.datasets:
+                print(f"[BATCH] tcngatre_gps_batch_size={int(args.tcngatre_gps_batch_size)}")
     print(f"[BATCH] stage_jobs={len(jobs)}")
     for job in jobs:
         seed_text = "" if job.seed is None else f" | seed={job.seed}"

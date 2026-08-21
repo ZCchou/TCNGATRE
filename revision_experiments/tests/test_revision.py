@@ -212,6 +212,9 @@ class RevisionTrainingParityTests(unittest.TestCase):
         self.assertEqual(make_config("ex01", "alfa", "full", 0).stride, 16)
         self.assertEqual(make_config("ex01", "gpsdata", "full", 0).stride, 4)
         self.assertEqual(make_config("ex01", "simulate", "full", 0).stride, 4)
+        self.assertEqual(make_config("ex01", "alfa", "full", 0).batch_size, 128)
+        self.assertEqual(make_config("ex01", "gpsdata", "full", 0).batch_size, 32)
+        self.assertEqual(make_config("ex01", "simulate", "full", 0).batch_size, 128)
         self.assertEqual(make_config("ex01", "alfa", "full", 0, smoke=True).stride, 64)
 
     def test_seeded_mode_does_not_force_slow_deterministic_kernels(self):
