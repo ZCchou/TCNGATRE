@@ -20,7 +20,7 @@ MODEL_ORDER = [
     "BeatGAN",
     "TCNGATRE",
 ]
-DATASET_ORDER = ["alfa", "alfa4hz", "simulate", "gpsdata"]
+DATASET_ORDER = ["alfa", "simulate", "gpsdata"]
 STAGE_ORDER = ["train", "infer", "eval"]
 
 MODEL_SCRIPTS: dict[str, dict[str, str]] = {

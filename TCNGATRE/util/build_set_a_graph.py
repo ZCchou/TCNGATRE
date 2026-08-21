@@ -78,21 +78,11 @@ SIMULATE_FEATS = [
     "current",
     "voltage",
 ]
-LEGACY_ALFA4HZ_SAMPLE_RATE_HZ = 4.0
-
-
-def _is_legacy_alfa4hz_path(path: Path) -> bool:
-    return any(str(part).strip().lower() == "alfa4hz" for part in Path(path).parts)
-
-
 def infer_feature_columns(in_dir: Path) -> List[str]:
     candidate_files = sorted(in_dir.glob("*.csv"))
     if not candidate_files:
         raise FileNotFoundError(f"Could not infer feature columns under {in_dir}")
     header = pd.read_csv(candidate_files[0], nrows=0, low_memory=False)
-    if "t" not in header.columns and _is_legacy_alfa4hz_path(candidate_files[0]):
-        raw = pd.read_csv(candidate_files[0], header=None, nrows=1, low_memory=False)
-        return [f"f{idx:02d}" for idx in range(raw.shape[1])]
     return [str(col) for col in header.columns if str(col) != "t"]
 
 
@@ -255,21 +245,10 @@ def load_feature_frames(
     required_cols = ["t"] + [f"{feat}{feature_suffix}" for feat in feat_cols]
 
     for fp in csv_files:
-        try:
-            df = pd.read_csv(fp, usecols=required_cols, low_memory=False)
-            t = pd.to_numeric(df["t"], errors="coerce").to_numpy(dtype=np.float64)
-            rename_map = {f"{feat}{feature_suffix}": feat for feat in feat_cols}
-            df = df.rename(columns=rename_map)
-        except ValueError:
-            if not _is_legacy_alfa4hz_path(fp):
-                raise
-            raw = pd.read_csv(fp, header=None, low_memory=False).apply(pd.to_numeric, errors="coerce")
-            if raw.shape[1] != len(feat_cols):
-                raise ValueError(f"Legacy alfa4hz feature width mismatch in {fp}: {raw.shape[1]} vs {len(feat_cols)}")
-            raw.columns = list(feat_cols)
-            raw.insert(0, "t", np.arange(len(raw), dtype=np.float64) / float(LEGACY_ALFA4HZ_SAMPLE_RATE_HZ))
-            df = raw
-            t = pd.to_numeric(df["t"], errors="coerce").to_numpy(dtype=np.float64)
+        df = pd.read_csv(fp, usecols=required_cols, low_memory=False)
+        t = pd.to_numeric(df["t"], errors="coerce").to_numpy(dtype=np.float64)
+        rename_map = {f"{feat}{feature_suffix}": feat for feat in feat_cols}
+        df = df.rename(columns=rename_map)
         t_valid = t[np.isfinite(t)]
         if len(t_valid) < 2:
             continue

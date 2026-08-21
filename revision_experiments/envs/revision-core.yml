@@ -1,0 +1,17 @@
+name: tcngatre-revision-core
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+dependencies:
+  - python=3.10
+  - numpy=1.26
+  - pandas>=2.0
+  - scipy>=1.10
+  - scikit-learn>=1.3
+  - matplotlib>=3.7
+  - tqdm>=4.66
+  - pytorch>=2.0
+  - pip
+  - pip:
+      - minepy==1.2.6

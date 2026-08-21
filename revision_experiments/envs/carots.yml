@@ -1,0 +1,17 @@
+name: tcngatre-revision-carots
+channels: [pytorch, conda-forge]
+dependencies:
+  - python=3.10
+  - pip
+  - pip:
+      - torch
+      - torch-geometric==2.6.1
+      - numpy
+      - pandas
+      - scipy
+      - scikit-learn
+      - matplotlib
+      - tqdm
+      - einops==0.8.1
+      - reformer-pytorch==1.4.4
+      - yacs==0.1.8

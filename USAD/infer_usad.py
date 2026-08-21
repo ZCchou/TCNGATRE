@@ -38,7 +38,7 @@ from utils.normalization import load_minmax_stats
 
 def parse_args(argv: list[str] | None = None):
     parser = argparse.ArgumentParser(description="Run USAD inference on a bundled dataset.")
-    parser.add_argument("--dataset", choices=["alfa", "alfa4hz", "simulate", "gpsdata"], default="alfa")
+    parser.add_argument("--dataset", choices=["alfa", "simulate", "gpsdata"], default="alfa")
     return parser.parse_args(argv)
 
 

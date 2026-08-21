@@ -23,9 +23,6 @@ END_COLUMN_CANDIDATES = (
     "end_sec", "t_end", "end", "end_time", "end_time_sec",
     "stop", "stop_sec", "offset", "offset_sec",
 )
-LEGACY_ALFA4HZ_SAMPLE_RATE_HZ = 4.0
-
-
 def _norm_col(name: object) -> str:
     return "".join(ch for ch in str(name).strip().lower() if ch.isalnum())
 
@@ -51,20 +48,6 @@ def _coerce_label(series: pd.Series) -> pd.Series:
     text = series.astype(str).str.strip().str.lower()
     positive = text.isin({"1", "true", "yes", "y", "anomaly", "fault", "failure", "attack", "abnormal"})
     return positive.astype(float)
-
-
-def _is_legacy_alfa4hz_path(path: Path) -> bool:
-    return any(str(part).strip().lower() == "alfa4hz" for part in Path(path).parts)
-
-
-def _load_legacy_alfa4hz_labels(path: Path) -> pd.DataFrame | None:
-    raw = pd.read_csv(Path(path), header=None)
-    if raw.shape[1] != 1:
-        return None
-    return pd.DataFrame({
-        "t": np.arange(len(raw), dtype=np.float64) / float(LEGACY_ALFA4HZ_SAMPLE_RATE_HZ),
-        "anomaly_label": _coerce_label(raw.iloc[:, 0]),
-    })
 
 
 def _from_point_labels(df: pd.DataFrame) -> pd.DataFrame | None:
@@ -121,8 +104,6 @@ def load_failure_labels(
     out = _from_point_labels(df)
     if out is None:
         out = _from_interval_labels(df)
-    if out is None and _is_legacy_alfa4hz_path(path):
-        out = _load_legacy_alfa4hz_labels(path)
     if out is None or out.empty:
         return None
     out["t"] = pd.to_numeric(out["t"], errors="coerce")

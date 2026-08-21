@@ -20,7 +20,7 @@ MODEL_ORDER = [
     "H5_DenseGraph",
     "H6_Conservative",
 ]
-DATASET_ORDER = ["alfa", "alfa4hz", "simulate", "gpsdata"]
+DATASET_ORDER = ["alfa", "simulate", "gpsdata"]
 STAGE_ORDER = ["train", "infer", "eval"]
 
 

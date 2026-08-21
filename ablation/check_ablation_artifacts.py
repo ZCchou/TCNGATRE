@@ -34,7 +34,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--dataset",
-        choices=["alfa", "alfa4hz", "simulate", "gpsdata"],
+        choices=["alfa", "simulate", "gpsdata"],
         default="alfa",
         help="Dataset suffix used in the ablation run directory names.",
     )

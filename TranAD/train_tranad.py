@@ -20,7 +20,7 @@ from utils.seed import set_seed
 
 def parse_args(argv: list[str] | None = None):
     parser = argparse.ArgumentParser(description="Train TranAD on a bundled dataset.")
-    parser.add_argument("--dataset", choices=["alfa", "alfa4hz", "simulate", "gpsdata"], default="alfa")
+    parser.add_argument("--dataset", choices=["alfa", "simulate", "gpsdata"], default="alfa")
     return parser.parse_args(argv)
 
 

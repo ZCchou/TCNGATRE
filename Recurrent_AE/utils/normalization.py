@@ -8,31 +8,12 @@ import numpy as np
 import pandas as pd
 
 
-LEGACY_ALFA4HZ_SAMPLE_RATE_HZ = 4.0
-
-
-def _is_legacy_alfa4hz_path(path: Path) -> bool:
-    return any(str(part).strip().lower() == "alfa4hz" for part in Path(path).parts)
-
-
-def _load_legacy_alfa4hz_frame(csv_path: Path) -> pd.DataFrame:
-    raw = pd.read_csv(Path(csv_path), header=None, low_memory=False)
-    raw = raw.apply(pd.to_numeric, errors="coerce")
-    feature_names = [f"f{idx:02d}" for idx in range(raw.shape[1])]
-    df = raw.copy()
-    df.columns = feature_names
-    df.insert(0, "t", np.arange(len(df), dtype=np.float64) / float(LEGACY_ALFA4HZ_SAMPLE_RATE_HZ))
-    return df
-
-
 def load_wide_flight_frame(csv_path: Path, trim_leading_sec: float = 0.0) -> tuple[np.ndarray, np.ndarray, list[str]]:
     """Load one wide-flight CSV and return trimmed time, values, and feature names."""
     csv_path = Path(csv_path)
     df = pd.read_csv(csv_path, low_memory=False)
     if "t" not in df.columns:
-        if not _is_legacy_alfa4hz_path(csv_path):
-            raise ValueError(f"Missing 't' column in {csv_path}")
-        df = _load_legacy_alfa4hz_frame(csv_path)
+        raise ValueError(f"Missing 't' column in {csv_path}")
 
     df = df.copy()
     df["t"] = pd.to_numeric(df["t"], errors="coerce")

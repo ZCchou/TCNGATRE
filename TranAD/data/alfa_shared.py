@@ -6,7 +6,7 @@ from pathlib import Path
 
 MANIFEST_NAME = "dataset_manifest.json"
 DATASET_DIR_MAP = {
-    "alfa": "alfa": "alfa4hz": "alfa4HZ",
+    "alfa": "alfa",
     "simulate": "simulate",
     "gpsdata": "gpsdata",
 }

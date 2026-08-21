@@ -19,7 +19,7 @@ MODEL_ORDER = [
     "TCNGATRE_NoGraph",
     "TCNGATRE_SingleHop",
 ]
-DATASET_ORDER = ["alfa", "alfa4hz", "simulate", "gpsdata"]
+DATASET_ORDER = ["alfa", "simulate", "gpsdata"]
 STAGE_ORDER = ["train", "infer", "eval"]
 
 

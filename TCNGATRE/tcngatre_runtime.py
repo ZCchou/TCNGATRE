@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import subprocess
 import sys
@@ -13,7 +12,7 @@ from utils.io import ensure_dir
 
 def parse_args(argv: list[str] | None = None, description: str = "Run TCNGATRE.") -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=description)
-    parser.add_argument("--dataset", choices=["alfa", "alfa4hz", "simulate", "gpsdata"], default="alfa")
+    parser.add_argument("--dataset", choices=["alfa", "simulate", "gpsdata"], default="alfa")
     return parser.parse_args(argv)
 
 
@@ -48,12 +47,6 @@ def ensure_graph_ready(cfg: TCNGATREConfig) -> None:
         "--max_points_per_pair", str(cfg.graph_max_points_per_pair),
         "--num_workers", str(cfg.graph_num_workers),
     ]
-    if str(cfg.dataset_name).strip().lower() == "alfa4hz":
-        manifest = json.loads(Path(cfg.dataset_manifest_path).read_text(encoding="utf-8"))
-        legacy = [str(x) for x in manifest.get("legacy_train_flights", [])]
-        if legacy:
-            cmd.append("--include_flights")
-            cmd.extend(legacy)
     if bool(cfg.graph_overwrite):
         cmd.append("--overwrite")
     _run_subprocess(cmd)

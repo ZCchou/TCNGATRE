@@ -1,0 +1,52 @@
+{
+  "catch": {
+    "title": "CATCH: Channel-Aware Multivariate Time Series Anomaly Detection via Frequency Patching",
+    "year": 2025,
+    "venue": "ICLR",
+    "paper_url": "https://openreview.net/forum?id=2BqCuM2pJY",
+    "repository_url": "https://github.com/decisionintelligence/CATCH.git",
+    "ref": "master",
+    "code_status": "official",
+    "required_datasets": ["alfa", "gpsdata", "simulate"]
+  },
+  "carots": {
+    "title": "Causality-Aware Contrastive Learning for Robust Multivariate Time-Series Anomaly Detection",
+    "year": 2025,
+    "venue": "ICML",
+    "paper_url": "https://proceedings.mlr.press/v267/kim25aa.html",
+    "repository_url": "https://github.com/kimanki/CAROTS.git",
+    "ref": "master",
+    "code_status": "official",
+    "required_datasets": ["alfa", "gpsdata", "simulate"]
+  },
+  "mstgcnet": {
+    "title": "Multiscale Spatio-Temporal Graph Convolutional Network for UAV Anomaly Detection",
+    "year": 2026,
+    "venue": "IEEE Internet of Things Journal",
+    "paper_url": "https://doi.org/10.1109/JIOT.2026.3661961",
+    "repository_url": "https://github.com/WindchaserHG/MSTGCNet.git",
+    "ref": "main",
+    "code_status": "official_incomplete_pending_audit",
+    "required_datasets": ["alfa"]
+  },
+  "tsae_uav": {
+    "title": "TSAE-UAV: A time-sense autoencoder for unsupervised anomaly detection of UAV based on flight data",
+    "year": 2025,
+    "venue": "Aerospace Science and Technology",
+    "paper_url": "https://doi.org/10.1016/j.ast.2025.111431",
+    "repository_url": null,
+    "ref": null,
+    "code_status": "not_reproducible_no_verified_official_code",
+    "required_datasets": ["alfa"]
+  },
+  "m2sc2_ad": {
+    "title": "M2SC2-AD: Multiscale Missing-aware Anomaly Detection framework with scale consistency constraints for sparse multi-sensor",
+    "year": 2026,
+    "venue": "Information Processing & Management",
+    "paper_url": "https://doi.org/10.1016/j.ipm.2026.104948",
+    "repository_url": null,
+    "ref": null,
+    "code_status": "not_reproducible_no_verified_official_code",
+    "required_datasets": ["alfa"]
+  }
+}

@@ -29,7 +29,7 @@ from utils.io import ensure_dir
 
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Evaluate hparam variant results.")
-    parser.add_argument("--dataset", choices=["alfa", "alfa4hz", "simulate", "gpsdata"], default="alfa")
+    parser.add_argument("--dataset", choices=["alfa", "simulate", "gpsdata"], default="alfa")
     return parser.parse_args(argv)
 
 

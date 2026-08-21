@@ -1,0 +1,4 @@
+{
+  "catch": "<absolute-path-to-catch-environment-python>",
+  "carots": "<absolute-path-to-carots-environment-python>"
+}

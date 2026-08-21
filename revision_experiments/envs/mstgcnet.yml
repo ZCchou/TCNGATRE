@@ -1,0 +1,9 @@
+name: tcngatre-revision-mstgcnet-audit
+channels: [pytorch, conda-forge]
+dependencies:
+  - python=3.10
+  - pip
+  - pip:
+      - torch
+      - numpy
+      - pandas

@@ -8,25 +8,6 @@ import numpy as np
 import pandas as pd
 
 
-LEGACY_ALFA4HZ_SAMPLE_RATE_HZ = 4.0
-
-
-def _is_legacy_alfa4hz_path(path: Path) -> bool:
-    return any(str(part).strip().lower() == "alfa4hz" for part in Path(path).parts)
-
-
-def _load_legacy_alfa4hz_labels(path: Path) -> pd.DataFrame | None:
-    raw = pd.read_csv(Path(path), header=None)
-    if raw.shape[1] != 1:
-        return None
-    return pd.DataFrame(
-        {
-            "t": np.arange(len(raw), dtype=np.float64) / float(LEGACY_ALFA4HZ_SAMPLE_RATE_HZ),
-            "anomaly_label": pd.to_numeric(raw.iloc[:, 0], errors="coerce").fillna(0.0),
-        }
-    )
-
-
 def load_failure_labels(labels_root: Path, flight: str, time_offset_sec: float = 0.0) -> pd.DataFrame | None:
     path = Path(labels_root) / f"{flight}.csv"
     if not path.exists():
@@ -36,18 +17,13 @@ def load_failure_labels(labels_root: Path, flight: str, time_offset_sec: float =
     except Exception:
         return None
     if "t" not in df.columns or "anomaly_label" not in df.columns:
-        if not _is_legacy_alfa4hz_path(path):
-            return None
-        out = _load_legacy_alfa4hz_labels(path)
-        if out is None:
-            return None
-    else:
-        out = pd.DataFrame(
-            {
-                "t": pd.to_numeric(df["t"], errors="coerce"),
-                "anomaly_label": pd.to_numeric(df["anomaly_label"], errors="coerce").fillna(0.0),
-            }
-        ).dropna(subset=["t"])
+        return None
+    out = pd.DataFrame(
+        {
+            "t": pd.to_numeric(df["t"], errors="coerce"),
+            "anomaly_label": pd.to_numeric(df["anomaly_label"], errors="coerce").fillna(0.0),
+        }
+    ).dropna(subset=["t"])
     if len(out) <= 0:
         return None
     if float(time_offset_sec) != 0.0:

@@ -1,0 +1,74 @@
+{
+  "protocol": "protocol_v1",
+  "datasets": ["alfa", "gpsdata", "simulate"],
+  "data_split_seed": 64,
+  "model_seeds": [0, 1, 2, 3, 4],
+  "primary_label": "label_any",
+  "primary_threshold": "spot",
+  "ema_alpha": 0.25,
+  "experiments": {
+    "ex01": [
+      "full",
+      "tcn_only",
+      "static_only",
+      "dynamic_only",
+      "late_graph",
+      "single_hop",
+      "no_cross_dim"
+    ],
+    "ex02": [
+      "prior_mic_fixed",
+      "prior_identity_fixed",
+      "prior_random_fixed",
+      "fusion_static",
+      "fusion_dynamic",
+      "fusion_learned_scalar",
+      "fusion_sample_gate",
+      "fusion_concat_mlp"
+    ],
+    "ex03": ["m2sc2_ad", "mstgcnet", "tsae_uav"],
+    "ex04": ["catch", "carots"],
+    "ex05": ["mean", "max", "topk_1", "topk_3", "topk_5", "quantile_90", "quantile_95"],
+    "ex06": ["multi_seed_significance"],
+    "ex07": ["graph_interpretability"],
+    "ex08": [
+      "gaussian_0.01",
+      "gaussian_0.05",
+      "gaussian_0.10",
+      "missing_0.10",
+      "missing_0.20",
+      "missing_0.30",
+      "channel_dropout_1",
+      "channel_dropout_3",
+      "downsample_2",
+      "downsample_4"
+    ]
+  },
+  "training": {
+    "epochs": 100,
+    "lookback": 128,
+    "horizon": 4,
+    "stride": 4,
+    "batch_size": 128,
+    "d_model": 64,
+    "tcn_layers": 5,
+    "tcn_blocks": 4,
+    "short_kernel": 5,
+    "short_patch": 8,
+    "dropout": 0.2
+  },
+  "smoke": {
+    "epochs": 1,
+    "lookback": 16,
+    "horizon": 4,
+    "stride": 64,
+    "batch_size": 32,
+    "d_model": 8,
+    "tcn_layers": 1,
+    "tcn_blocks": 1,
+    "short_kernel": 5,
+    "short_patch": 8,
+    "dropout": 0.1,
+    "graph_max_points_per_pair": 5000
+  }
+}

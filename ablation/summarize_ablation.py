@@ -19,7 +19,7 @@ MODEL_ORDER = [
     "TCNGATRE_NoGraph",
     "TCNGATRE_SingleHop",
 ]
-DATASET_ORDER = ["alfa", "alfa4hz", "simulate", "gpsdata"]
+DATASET_ORDER = ["alfa", "simulate", "gpsdata"]
 LABEL_COLS = ["label_any", "label_mid"]
 THRESHOLD_METHODS = ["static_f1_oracle", "static_val_sigma3", "dynamic_history", "spot"]
 METRIC_COLS = [

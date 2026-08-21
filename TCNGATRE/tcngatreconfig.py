@@ -221,9 +221,6 @@ class TCNGATREConfig:
         self.input_ema_alpha = float(min(max(self.input_ema_alpha, 0.0), 1.0))
         self.threshold_quantile = float(min(max(self.threshold_quantile, 0.5), 0.999999))
         self.threshold_smooth_alpha = float(min(max(self.threshold_smooth_alpha, 0.0), 1.0))
-        if self.dataset_name == "alfa4hz" and os.getenv("UAV_TCNGATRE_GRAPH_GRID_SEC") is None:
-            self.graph_grid_sec = 0.25
-
     @property
     def dataset_manifest_path(self) -> Path:
         return self.data_root / MANIFEST_NAME
@@ -240,7 +237,7 @@ class TCNGATREConfig:
     def dataset_mode(self) -> str:
         if self.dataset_name == "simulate":
             return "simulate"
-        if self.dataset_name in ("gpsdata", "alfa4hz"):
+        if self.dataset_name == "gpsdata":
             return "gpsdata"
         return "set_a_causal"
 

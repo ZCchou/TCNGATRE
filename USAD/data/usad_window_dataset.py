@@ -16,9 +16,6 @@ TIME_COLUMN_CANDIDATES = ("t", "time", "timestamp", "time_sec", "time_s", "secon
 LABEL_COLUMN_CANDIDATES = ("anomaly_label", "label", "fault_flag", "is_anomaly", "anomaly", "target", "attack", "failure")
 START_COLUMN_CANDIDATES = ("start_sec", "t_start", "start", "start_time", "begin", "onset")
 END_COLUMN_CANDIDATES = ("end_sec", "t_end", "end", "end_time", "stop", "offset")
-LEGACY_ALFA4HZ_SAMPLE_RATE_HZ = 4.0
-
-
 def _norm_col(name: object) -> str:
     return "".join(ch for ch in str(name).strip().lower() if ch.isalnum())
 
@@ -40,22 +37,6 @@ def _coerce_label(series: pd.Series) -> pd.Series:
     numeric = numeric.mask(numeric.isna() & positive, 1.0)
     numeric = numeric.mask(numeric.isna() & negative, 0.0)
     return numeric.fillna(0.0)
-
-
-def _is_legacy_alfa4hz_path(path: Path) -> bool:
-    return any(str(part).strip().lower() == "alfa4hz" for part in Path(path).parts)
-
-
-def _load_legacy_alfa4hz_labels(path: Path) -> pd.DataFrame | None:
-    raw = pd.read_csv(Path(path), header=None)
-    if raw.shape[1] != 1:
-        return None
-    return pd.DataFrame(
-        {
-            "t": np.arange(len(raw), dtype=np.float64) / float(LEGACY_ALFA4HZ_SAMPLE_RATE_HZ),
-            "anomaly_label": _coerce_label(raw.iloc[:, 0]),
-        }
-    )
 
 
 class USADWindowDataset(Dataset):
@@ -180,11 +161,7 @@ def load_failure_labels(labels_root: Path, flight: str, time_offset_sec: float =
         start_col = _find_column(df, START_COLUMN_CANDIDATES)
         end_col = _find_column(df, END_COLUMN_CANDIDATES)
         if start_col is None or end_col is None:
-            if not _is_legacy_alfa4hz_path(path):
-                return None
-            out = _load_legacy_alfa4hz_labels(path)
-            if out is None:
-                return None
+            return None
         else:
             label_col = _find_column(df, LABEL_COLUMN_CANDIDATES)
             starts = pd.to_numeric(df[start_col], errors="coerce")
