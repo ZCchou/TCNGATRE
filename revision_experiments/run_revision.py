@@ -15,11 +15,16 @@ for path in (REPO_ROOT, PACKAGE_ROOT, REPO_ROOT / "TCNGATRE"):
 os.environ.setdefault("PYTHONDONTWRITEBYTECODE", "1")
 
 from revision_experiments.analysis.graph_interpretability import analyze_graph_run
-from revision_experiments.analysis.summarize import collect_primary_metrics
+from revision_experiments.analysis.summarize import summarize_experiment_matrix
 from revision_experiments.baselines.export_common_data import ensure_common_data
 from revision_experiments.baselines.manager import audit_adapter_runs, fetch_and_audit, load_sources
 from revision_experiments.baselines.launcher import execute_isolated_baseline
-from revision_experiments.core.config import DATASETS, load_protocol, make_config
+from revision_experiments.core.config import (
+    DATASETS,
+    load_protocol,
+    make_config,
+    resolve_experiment_selection,
+)
 from revision_experiments.core.doctor import run_doctor
 from revision_experiments.core.engine import execute_robustness_inference, execute_training_run
 from revision_experiments.core.integrity import create_snapshot, verify_snapshot
@@ -38,27 +43,49 @@ def _csv_list(value: str) -> list[str]:
 
 def _datasets(value: str) -> list[str]:
     values = list(DATASETS) if value.strip().lower() == "all" else _csv_list(value)
+    if not values:
+        raise ValueError("At least one dataset is required")
     unknown = sorted(set(values).difference(DATASETS))
     if unknown:
         raise ValueError(f"Unknown datasets: {unknown}")
+    if len(values) != len(set(values)):
+        raise ValueError(f"Duplicate datasets are not allowed: {values}")
     return values
 
 
 def _seeds(value: str) -> list[int]:
-    return [int(item) for item in _csv_list(value)]
+    values = [int(item) for item in _csv_list(value)]
+    if not values:
+        raise ValueError("At least one model seed is required")
+    if any(seed < 0 for seed in values):
+        raise ValueError(f"Model seeds must be non-negative: {values}")
+    if len(values) != len(set(values)):
+        raise ValueError(f"Duplicate model seeds are not allowed: {values}")
+    return values
 
 
-def _task_rows(experiments: list[str], datasets: list[str], seeds: list[int], smoke: bool) -> list[dict]:
+def _task_rows(
+    experiments: list[str],
+    datasets: list[str],
+    seeds: list[int],
+    smoke: bool,
+    *,
+    variants: list[str] | None = None,
+    preset: str | None = None,
+) -> list[dict]:
     protocol = load_protocol()
+    selection = resolve_experiment_selection(
+        protocol,
+        experiments=experiments,
+        variants=variants,
+        preset=preset,
+    )
     rows = []
-    for experiment in experiments:
-        if experiment not in protocol["experiments"]:
-            raise ValueError(f"Unknown experiment: {experiment}")
-        variants = protocol["experiments"][experiment]
+    for experiment, experiment_variants in selection.items():
         for dataset in datasets:
             if experiment == "ex03" and dataset != "alfa":
                 continue
-            for variant in variants:
+            for variant in experiment_variants:
                 for seed in seeds:
                     cfg = make_config(experiment, dataset, variant, seed, smoke=smoke, protocol=protocol)
                     rows.append({
@@ -220,10 +247,18 @@ def command_audit_adapters(args) -> int:
 
 
 def command_run(args) -> int:
-    experiments = _csv_list(args.experiments)
+    experiments = _csv_list(args.experiments) if args.experiments else []
+    variants = _csv_list(args.variants) if args.variants else None
     datasets = _datasets(args.datasets)
     seeds = _seeds(args.seeds)
-    rows = _task_rows(experiments, datasets, seeds, smoke=bool(args.smoke))
+    rows = _task_rows(
+        experiments,
+        datasets,
+        seeds,
+        smoke=bool(args.smoke),
+        variants=variants,
+        preset=args.preset,
+    )
     manifest = _write_manifest(rows, args.manifest_name)
     print(f"manifest={manifest} tasks={len(rows)}")
     if args.dry_run:
@@ -235,7 +270,7 @@ def command_run(args) -> int:
 
 def command_smoke(args) -> int:
     datasets = _datasets(args.datasets)
-    core_rows = _task_rows(["ex01", "ex02"], datasets, [0], smoke=True)
+    core_rows = _task_rows([], datasets, [0], smoke=True, preset=args.preset)
     manifest = _write_manifest(core_rows, "smoke_manifest.csv")
     print(f"smoke_manifest={manifest} tasks={len(core_rows)}")
     outcomes = execute_tasks(core_rows, force=args.force)
@@ -250,9 +285,30 @@ def command_smoke(args) -> int:
 
 
 def command_summarize(args) -> int:
-    frame = collect_primary_metrics(args.protocol)
-    print(f"collected_runs={len(frame)}")
-    return 0
+    protocol = load_protocol()
+    experiments = _csv_list(args.experiments) if args.experiments else []
+    variants = _csv_list(args.variants) if args.variants else None
+    selection = resolve_experiment_selection(
+        protocol,
+        experiments=experiments,
+        variants=variants,
+        preset=args.preset,
+    )
+    preset_spec = protocol.get("experiment_presets", {}).get(args.preset or "", {})
+    reference_spec = preset_spec.get(
+        "reference", {"experiment": "ex01", "variant": "full"}
+    )
+    report = summarize_experiment_matrix(
+        protocol_name=args.protocol,
+        selection=selection,
+        datasets=_datasets(args.datasets),
+        seeds=_seeds(args.seeds),
+        preset_name=args.preset or "custom",
+        reference=(str(reference_spec["experiment"]), str(reference_spec["variant"])),
+        n_resamples=int(args.bootstrap_resamples),
+    )
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    return 2 if args.require_complete and report["status"] != "complete" else 0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -279,7 +335,9 @@ def build_parser() -> argparse.ArgumentParser:
     adapter_audit.set_defaults(func=command_audit_adapters)
 
     run = sub.add_parser("run", help="Generate and optionally execute a revision task matrix.")
-    run.add_argument("--experiments", required=True)
+    run.add_argument("--experiments")
+    run.add_argument("--variants")
+    run.add_argument("--preset")
     run.add_argument("--datasets", default="all")
     run.add_argument("--seeds", default="0,1,2,3,4")
     run.add_argument("--smoke", action="store_true")
@@ -290,12 +348,20 @@ def build_parser() -> argparse.ArgumentParser:
 
     smoke = sub.add_parser("smoke", help="Run one-epoch core experiments and inference analyses.")
     smoke.add_argument("--datasets", default="all")
+    smoke.add_argument("--preset", default="core_ablation")
     smoke.add_argument("--force", action="store_true")
     smoke.add_argument("--skip-analyses", action="store_true")
     smoke.set_defaults(func=command_smoke)
 
     summary = sub.add_parser("summarize", help="Collect result tables without selecting a best seed.")
     summary.add_argument("--protocol", default="protocol_v1")
+    summary.add_argument("--preset", default="core_ablation")
+    summary.add_argument("--experiments")
+    summary.add_argument("--variants")
+    summary.add_argument("--datasets", default="all")
+    summary.add_argument("--seeds", default="0,1,2,3,4")
+    summary.add_argument("--bootstrap-resamples", type=int, default=10000)
+    summary.add_argument("--require-complete", action="store_true")
     summary.set_defaults(func=command_summarize)
     return parser
 

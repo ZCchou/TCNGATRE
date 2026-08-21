@@ -20,29 +20,28 @@ def hierarchical_paired_bootstrap(
     if not required.issubset(pairs.columns):
         raise ValueError(f"Missing columns: {sorted(required.difference(pairs.columns))}")
     clean = pairs.dropna(subset=list(required)).copy()
-    flights = clean[flight_col].drop_duplicates().to_numpy()
-    if len(flights) == 0:
+    flight_differences = [
+        (group[value_a].to_numpy(dtype=np.float64) - group[value_b].to_numpy(dtype=np.float64))
+        for _, group in clean.groupby(flight_col, sort=False)
+    ]
+    if not flight_differences:
         raise ValueError("No paired observations")
     rng = np.random.default_rng(int(random_seed))
     estimates = np.empty(int(n_resamples), dtype=np.float64)
     for idx in range(int(n_resamples)):
-        sampled_flights = rng.choice(flights, size=len(flights), replace=True)
-        differences: list[float] = []
-        for flight in sampled_flights:
-            group = clean.loc[clean[flight_col] == flight]
-            seeds = group[seed_col].drop_duplicates().to_numpy()
-            sampled_seeds = rng.choice(seeds, size=len(seeds), replace=True)
-            for seed in sampled_seeds:
-                row = group.loc[group[seed_col] == seed].iloc[0]
-                differences.append(float(row[value_a]) - float(row[value_b]))
-        estimates[idx] = float(np.mean(differences))
+        sampled_flights = rng.integers(0, len(flight_differences), size=len(flight_differences))
+        sampled_means = []
+        for flight_index in sampled_flights:
+            values = flight_differences[int(flight_index)]
+            sampled_means.append(float(rng.choice(values, size=len(values), replace=True).mean()))
+        estimates[idx] = float(np.mean(sampled_means))
     observed = float(np.mean(clean[value_a] - clean[value_b]))
     return {
         "mean_difference": observed,
         "ci95_low": float(np.quantile(estimates, 0.025)),
         "ci95_high": float(np.quantile(estimates, 0.975)),
         "n_resamples": int(n_resamples),
-        "n_flights": int(len(flights)),
+        "n_flights": int(len(flight_differences)),
     }
 
 

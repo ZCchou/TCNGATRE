@@ -17,10 +17,32 @@ python revision_experiments/run_revision.py verify-legacy
 python revision_experiments/run_revision.py fetch-baselines
 python revision_experiments/run_revision.py prepare-baseline-data --datasets all
 python revision_experiments/run_revision.py audit-adapters --seed 0
-python revision_experiments/run_revision.py smoke --datasets all
-python revision_experiments/run_revision.py run --experiments ex01,ex02 --datasets all --seeds 0,1,2,3,4 --dry-run
-python revision_experiments/run_revision.py summarize --protocol protocol_v1
+python revision_experiments/run_revision.py smoke --preset core_ablation --datasets all
+python revision_experiments/run_revision.py run --preset core_ablation --datasets all --seeds 0,1,2,3,4 --dry-run
+python revision_experiments/run_revision.py summarize --preset core_ablation --datasets all --seeds 0,1,2,3,4 --require-complete
 ```
+
+## Focused reviewer ablation
+
+The `core_ablation` preset removes duplicate or low-priority configurations and
+keeps seven reviewer-facing variants: Full, TCN-only, late graph fusion,
+static-only, dynamic-only, learned scalar fusion, and a shuffled-MIC prior.
+This expands to 7 variants x 3 datasets x 5 seeds = 105 runs. Repeating the
+same run command resumes partial checkpoints and reuses a completed run only
+when both its resolved configuration hash and current data-protocol hash match.
+
+```powershell
+python -u revision_experiments/run_revision.py run --preset core_ablation --datasets all --seeds 0,1,2,3,4 --manifest-name core_ablation_5seed.csv
+python revision_experiments/run_revision.py summarize --preset core_ablation --datasets all --seeds 0,1,2,3,4 --require-complete
+```
+
+The focused summary is written under
+`revision_results/protocol_v1/summary/core_ablation/`. It contains the audited
+run-status matrix, missing/invalid cells, every Micro `SPOT + label_any` seed
+result, mean/std/count tables, per-flight inputs, and paired F1 bootstrap,
+permutation, rank-biserial, and Holm-corrected significance results. Runs from
+the former ALFA 9/1/16 protocol are rejected by their data-protocol hash and
+cannot enter the statistical tables.
 
 ## Six-model repeated runs
 

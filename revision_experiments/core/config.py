@@ -16,6 +16,73 @@ def load_protocol(path: Path = PROTOCOL_PATH) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def resolve_experiment_selection(
+    protocol: dict[str, Any],
+    *,
+    experiments: list[str] | None = None,
+    variants: list[str] | None = None,
+    preset: str | None = None,
+) -> dict[str, list[str]]:
+    available: dict[str, list[str]] = {
+        str(experiment): [str(variant) for variant in experiment_variants]
+        for experiment, experiment_variants in protocol.get("experiments", {}).items()
+    }
+    requested_experiments = [str(value) for value in (experiments or [])]
+    requested_variants = [str(value) for value in (variants or [])]
+
+    if preset:
+        presets = protocol.get("experiment_presets", {})
+        if preset not in presets:
+            raise ValueError(f"Unknown experiment preset: {preset}")
+        preset_experiments = presets[preset].get("experiments", {})
+        base = {
+            str(experiment): [str(variant) for variant in experiment_variants]
+            for experiment, experiment_variants in preset_experiments.items()
+        }
+    else:
+        if not requested_experiments:
+            raise ValueError("At least one experiment or --preset is required")
+        base = {
+            experiment: list(available.get(experiment, []))
+            for experiment in requested_experiments
+        }
+
+    if requested_experiments:
+        unknown_experiments = sorted(set(requested_experiments).difference(available))
+        if unknown_experiments:
+            raise ValueError(f"Unknown experiments: {unknown_experiments}")
+        missing_from_preset = sorted(set(requested_experiments).difference(base))
+        if missing_from_preset:
+            raise ValueError(
+                f"Experiments are not included in preset {preset!r}: {missing_from_preset}"
+            )
+        base = {experiment: base[experiment] for experiment in requested_experiments}
+
+    for experiment, experiment_variants in base.items():
+        if experiment not in available:
+            raise ValueError(f"Unknown experiment in selection: {experiment}")
+        unknown_variants = sorted(set(experiment_variants).difference(available[experiment]))
+        if unknown_variants:
+            raise ValueError(
+                f"Unknown variants for {experiment}: {unknown_variants}"
+            )
+
+    if requested_variants:
+        selected = {
+            experiment: [variant for variant in experiment_variants if variant in requested_variants]
+            for experiment, experiment_variants in base.items()
+        }
+        matched = {variant for experiment_variants in selected.values() for variant in experiment_variants}
+        unmatched = sorted(set(requested_variants).difference(matched))
+        if unmatched:
+            raise ValueError(f"Requested variants are not in the selected experiments: {unmatched}")
+        base = {experiment: values for experiment, values in selected.items() if values}
+
+    if not base or not any(base.values()):
+        raise ValueError("Experiment selection is empty")
+    return base
+
+
 @dataclass(frozen=True)
 class RevisionConfig:
     protocol: str

@@ -44,6 +44,28 @@
       "downsample_4"
     ]
   },
+  "experiment_presets": {
+    "core_ablation": {
+      "description": "Focused reviewer-facing temporal-graph, static-dynamic fusion, and MIC-prior ablation matrix without duplicate configurations.",
+      "experiments": {
+        "ex01": [
+          "full",
+          "tcn_only",
+          "late_graph",
+          "static_only",
+          "dynamic_only"
+        ],
+        "ex02": [
+          "fusion_learned_scalar",
+          "prior_random_fixed"
+        ]
+      },
+      "reference": {
+        "experiment": "ex01",
+        "variant": "full"
+      }
+    }
+  },
   "training": {
     "epochs": 100,
     "lookback": 128,

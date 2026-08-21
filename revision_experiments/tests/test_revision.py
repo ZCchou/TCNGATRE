@@ -6,9 +6,11 @@ import tempfile
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import torch
 
 from revision_experiments.analysis.robustness import corrupt_array
+from revision_experiments.analysis.summarize import summarize_experiment_matrix
 from revision_experiments.analysis.statistics import holm_adjust, paired_sign_permutation, rank_biserial
 from revision_experiments.baselines.common_data import CommonDataBundle, FlightWindowDataset, window_starts
 from revision_experiments.baselines.export_common_data import (
@@ -17,7 +19,12 @@ from revision_experiments.baselines.export_common_data import (
     split_fingerprint,
     validate_common_data,
 )
-from revision_experiments.core.config import make_config
+from revision_experiments.core.config import (
+    load_protocol,
+    make_config,
+    resolve_experiment_selection,
+)
+from revision_experiments.core.engine import data_protocol_payload
 from revision_experiments.core.engine import set_model_seed
 from revision_experiments.scoring.aggregators import aggregate_channels
 from revision_experiments.scoring.local_anomaly import inject_local_anomaly
@@ -62,6 +69,128 @@ class StatisticsTests(unittest.TestCase):
     def test_holm_is_monotone_in_sorted_order(self):
         adjusted = holm_adjust([0.01, 0.04, 0.03])
         self.assertTrue(all(0.0 <= value <= 1.0 for value in adjusted))
+
+
+class CoreAblationMatrixTests(unittest.TestCase):
+    EXPECTED_SELECTION = {
+        "ex01": ["full", "tcn_only", "late_graph", "static_only", "dynamic_only"],
+        "ex02": ["fusion_learned_scalar", "prior_random_fixed"],
+    }
+
+    def test_core_preset_expands_to_105_unique_runs(self):
+        from revision_experiments.run_revision import _seeds, _task_rows
+
+        protocol = load_protocol()
+        selection = resolve_experiment_selection(protocol, preset="core_ablation")
+        self.assertEqual(selection, self.EXPECTED_SELECTION)
+        rows = _task_rows(
+            [], ["alfa", "gpsdata", "simulate"], [0, 1, 2, 3, 4], False,
+            preset="core_ablation",
+        )
+        self.assertEqual(len(rows), 105)
+        self.assertEqual(len({row["run_dir"] for row in rows}), 105)
+        with self.assertRaisesRegex(ValueError, "Duplicate model seeds"):
+            _seeds("0,0")
+
+    def test_variant_filter_rejects_unmatched_names(self):
+        protocol = load_protocol()
+        selected = resolve_experiment_selection(
+            protocol, preset="core_ablation", variants=["full", "prior_random_fixed"]
+        )
+        self.assertEqual(selected, {"ex01": ["full"], "ex02": ["prior_random_fixed"]})
+        with self.assertRaisesRegex(ValueError, "not in the selected experiments"):
+            resolve_experiment_selection(
+                protocol, preset="core_ablation", variants=["single_hop"]
+            )
+
+    @staticmethod
+    def _write_fake_run(root: Path, experiment: str, variant: str, seed: int) -> None:
+        cfg = make_config(experiment, "simulate", variant, seed)
+        protocol_hash = data_protocol_payload(cfg.to_legacy())["data_protocol_hash"]
+        run_dir = root / "protocol_v1" / experiment / "simulate" / variant / f"seed_{seed}"
+        analysis = run_dir / "infer_tcngatre_failure" / "score_threshold_analysis"
+        analysis.mkdir(parents=True)
+        value = 0.8 if variant == "full" else 0.7
+        primary = {
+            "threshold_method": "spot",
+            "label_col": "label_any",
+            "precision": value,
+            "recall": value,
+            "f1": value,
+            "fpr": 1.0 - value,
+            "auroc": value,
+            "average_precision": value,
+            "num_samples": 100,
+            "positives": 20,
+            "negatives": 80,
+            "tp": 16,
+            "fp": 4,
+            "tn": 76,
+            "fn": 4,
+        }
+        (analysis / "primary_metrics.json").write_text(json.dumps(primary), encoding="utf-8")
+        pd.DataFrame(
+            [
+                {"flight": "simulate_0", "threshold_method": "spot", "label_col": "label_any", "f1": value},
+                {"flight": "simulate_1", "threshold_method": "spot", "label_col": "label_any", "f1": value - 0.05},
+            ]
+        ).to_csv(analysis / "per_flight_total_score_threshold_methods.csv", index=False)
+        (run_dir / "DONE.json").write_text(
+            json.dumps({
+                "status": "complete",
+                "config_hash": cfg.config_hash,
+                "data_protocol_hash": protocol_hash,
+            }),
+            encoding="utf-8",
+        )
+
+    def test_summary_is_complete_and_statistically_usable(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            selection = {"ex01": ["full", "tcn_only"]}
+            for variant in selection["ex01"]:
+                for seed in (0, 1):
+                    self._write_fake_run(root, "ex01", variant, seed)
+            report = summarize_experiment_matrix(
+                "protocol_v1",
+                selection,
+                ["simulate"],
+                [0, 1],
+                results_root=root,
+                preset_name="test_core",
+                n_resamples=100,
+            )
+            self.assertEqual(report["status"], "complete")
+            self.assertEqual(report["complete_runs"], 4)
+            output = root / "protocol_v1" / "summary" / "test_core"
+            summary = pd.read_csv(output / "primary_metrics_seed_summary.csv")
+            significance = pd.read_csv(output / "paired_significance.csv")
+            self.assertTrue((summary["seed_count"] == 2).all())
+            self.assertEqual(significance.loc[0, "status"], "complete")
+            self.assertTrue(np.isfinite(float(significance.loc[0, "p_value_holm"])))
+
+            stale_done = (
+                root / "protocol_v1" / "ex01" / "simulate" / "tcn_only"
+                / "seed_1" / "DONE.json"
+            )
+            payload = json.loads(stale_done.read_text(encoding="utf-8"))
+            payload["data_protocol_hash"] = "stale_9_1_16_protocol"
+            stale_done.write_text(json.dumps(payload), encoding="utf-8")
+            incomplete = summarize_experiment_matrix(
+                "protocol_v1",
+                selection,
+                ["simulate"],
+                [0, 1],
+                results_root=root,
+                preset_name="test_stale",
+                n_resamples=20,
+            )
+            self.assertEqual(incomplete["status"], "incomplete")
+            missing = pd.read_csv(
+                root / "protocol_v1" / "summary" / "test_stale"
+                / "missing_experiment_cells.csv"
+            )
+            self.assertEqual(missing.loc[0, "reason"], "data_protocol_hash_mismatch")
 
 
 class RevisionTrainingParityTests(unittest.TestCase):
