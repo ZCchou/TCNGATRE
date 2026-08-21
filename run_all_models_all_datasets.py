@@ -21,6 +21,7 @@ REVISION_ROOT = ROOT / "revision_experiments"
 DEFAULT_RESULT_ROOT = ROOT / "revision_results" / "protocol_v1" / "main_comparison"
 DEFAULT_SMOKE_RESULT_ROOT = ROOT / "revision_results" / "protocol_v1" / "main_comparison_smoke"
 DETERMINISTIC_ENTRYPOINT = REVISION_ROOT / "main_comparison" / "deterministic_entrypoint.py"
+DEFAULT_TCNGATRE_GPS_BATCH_SIZE = 16
 
 MODEL_ORDER = [
     "USAD",
@@ -243,6 +244,15 @@ def parse_args(argv: list[str] | None = None):
         ),
     )
     parser.add_argument(
+        "--tcngatre-gps-batch-size",
+        type=int,
+        default=DEFAULT_TCNGATRE_GPS_BATCH_SIZE,
+        help=(
+            "Physical batch size used only for seeded TCNGATRE runs on GPSData. "
+            f"Defaults to {DEFAULT_TCNGATRE_GPS_BATCH_SIZE} to avoid OOM with its larger sensor graph."
+        ),
+    )
+    parser.add_argument(
         "--force",
         action="store_true",
         help="Rerun seeded stages even when matching completion markers already exist.",
@@ -276,6 +286,8 @@ def parse_args(argv: list[str] | None = None):
         parser.error("--smoke, --force, --result-root, --plots and --determinism require --seeds")
     if args.seeds is not None and any(int(seed) < 0 for seed in args.seeds):
         parser.error("--seeds values must be non-negative integers")
+    if int(args.tcngatre_gps_batch_size) < 1:
+        parser.error("--tcngatre-gps-batch-size must be a positive integer")
     return args
 
 
@@ -321,6 +333,7 @@ def _seeded_env(
     smoke: bool,
     determinism: str,
     plots: bool,
+    tcngatre_gps_batch_size: int,
 ) -> dict[str, str]:
     names = MODEL_ENV[model]
     env = {
@@ -335,6 +348,8 @@ def _seeded_env(
     if model == "TCNGATRE":
         graph_root = result_root / "_shared" / "tcngatre_graph" / dataset
         env["UAV_TCNGATRE_GRAPH_DIR"] = str(graph_root)
+        if dataset == "gpsdata":
+            env["UAV_TCNGATRE_BATCH_SIZE"] = str(int(tcngatre_gps_batch_size))
     plot_value = "1" if plots and not smoke else "0"
     env[names["plot"]] = plot_value
     if "plot_compare" in names:
@@ -379,6 +394,7 @@ def build_job_specs(args) -> tuple[list[JobSpec], Path]:
                         bool(args.smoke),
                         str(args.determinism),
                         bool(args.plots),
+                        int(args.tcngatre_gps_batch_size),
                     )
                 )
                 for stage in stages:

@@ -4,7 +4,7 @@
     {
       "path": "run_all_models_all_datasets.py",
       "old_sha256": "eb55858556e73872d5dab6892a2e412b13b13e2cfd452e9d7a6a711fc855baf8",
-      "new_sha256": "eba5e7b58de20ab7e7c6ae0cf32d38eb58888fd5561a5154fa7d94852130bc1b",
+      "new_sha256": "577cfd365c2bb24c2c9e0222fb505d9501fc5c5c5c9028ad2b550a7e0a7e0b5c",
       "accepted_old_sha256": [
         "eb55858556e73872d5dab6892a2e412b13b13e2cfd452e9d7a6a711fc855baf8",
         "92a6f59ac8f09789c9cba39cc9df520bfe1604ed472714fcfe25eaca86526836",
@@ -13,10 +13,12 @@
       "accepted_new_sha256": [
         "eba5e7b58de20ab7e7c6ae0cf32d38eb58888fd5561a5154fa7d94852130bc1b",
         "3db790aa811e6702c53fb863402faebfd96a33617ce313ae1f793ba0058781e5",
+        "33520fd32b07b0155a7c019689050246005da970efc00ae3521a93e05fe6a829",
+        "577cfd365c2bb24c2c9e0222fb505d9501fc5c5c5c9028ad2b550a7e0a7e0b5c",
         "fb78df7e649643232a4318d81851da3ceee507d05e2378a481862dd1f053e243",
         "c5d6b9324a84f3f021f7754d6a7439c391ca3867ac25f9af65825ccaa1a7424d"
       ],
-      "reason": "Add audited multi-seed orchestration, isolated outputs, deterministic launching, resume markers, and result collection for the six-model comparison.",
+      "reason": "Add audited multi-seed orchestration, isolated outputs, deterministic launching, resume markers, result collection, and a GPSData-only TCNGATRE memory-safe batch override.",
       "approved_at": "2026-08-21"
     }
   ]

@@ -82,6 +82,32 @@ class MainComparisonPlanningTests(unittest.TestCase):
             self.assertEqual(train.env_overrides["UAV_TCNGATRE_PLOT_SCORES"], "0")
             self.assertIn("seeded", train.command)
 
+    def test_tcngatre_gps_uses_targeted_memory_safe_batch(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            args = runner.parse_args(
+                [
+                    "--models", "USAD", "TCNGATRE",
+                    "--datasets", "gpsdata", "simulate",
+                    "--seeds", "0",
+                    "--tcngatre-gps-batch-size", "16",
+                    "--result-root", temporary,
+                ]
+            )
+            jobs, _ = runner.build_job_specs(args)
+            train_jobs = [job for job in jobs if job.stage == "train"]
+            gps_tcngatre = next(
+                job for job in train_jobs
+                if job.model == "TCNGATRE" and job.dataset == "gpsdata"
+            )
+            self.assertEqual(gps_tcngatre.env_overrides["UAV_TCNGATRE_BATCH_SIZE"], "16")
+            self.assertTrue(
+                all(
+                    "UAV_TCNGATRE_BATCH_SIZE" not in job.env_overrides
+                    for job in train_jobs
+                    if not (job.model == "TCNGATRE" and job.dataset == "gpsdata")
+                )
+            )
+
     def test_strict_profile_and_explicit_plots_are_available(self):
         with tempfile.TemporaryDirectory() as temporary:
             args = runner.parse_args(

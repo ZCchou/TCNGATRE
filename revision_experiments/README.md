@@ -41,8 +41,15 @@ of five-seed statistical repetition; exact bitwise reruns can still be requested
 with `--determinism strict`. Native per-flight plotting is disabled by default
 because it does not affect scores or Micro metrics; pass `--plots` when those
 diagnostic figures are specifically needed. Model architecture, epoch counts,
-batch sizes, optimizer settings, data splits, inference scores and thresholds
-are unchanged from the original single-seed commands.
+optimizer settings, data splits, inference scores and thresholds are unchanged
+from the original single-seed commands; the GPSData memory override below is
+the only seeded batch-size exception.
+
+GPSData has substantially more sensor nodes than ALFA. Seeded TCNGATRE runs on
+GPSData therefore use a targeted physical batch size of 16 to avoid quadratic
+graph-memory OOMs; every other model/dataset keeps its native batch size. The
+override is recorded in each stage signature and provenance file and can be
+changed explicitly with `--tcngatre-gps-batch-size`.
 
 The primary comparison collector uses only the Micro result selected from the
 global `summary_metrics.csv` row with `threshold_method=spot` and
