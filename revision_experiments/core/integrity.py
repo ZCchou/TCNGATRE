@@ -67,11 +67,35 @@ def load_approved_changes(path: Path = APPROVED_LEGACY_CHANGES_PATH) -> dict[str
         rel = str(row.get("path", "")).strip().replace("\\", "/")
         old_hash = str(row.get("old_sha256", "")).strip().lower()
         new_hash = str(row.get("new_sha256", "")).strip().lower()
-        if not rel or len(old_hash) != 64 or len(new_hash) != 64:
+        accepted_old = {
+            str(value).strip().lower()
+            for value in row.get("accepted_old_sha256", [old_hash])
+        }
+        accepted_new = {
+            str(value).strip().lower()
+            for value in row.get("accepted_new_sha256", [new_hash])
+        }
+        if old_hash:
+            accepted_old.add(old_hash)
+        if new_hash:
+            accepted_new.add(new_hash)
+        if (
+            not rel
+            or not accepted_old
+            or not accepted_new
+            or any(len(value) != 64 for value in accepted_old | accepted_new)
+        ):
             raise LegacyIntegrityError(f"Invalid approved legacy change entry: {row}")
         if rel in approved:
             raise LegacyIntegrityError(f"Duplicate approved legacy change: {rel}")
-        approved[rel] = {**row, "path": rel, "old_sha256": old_hash, "new_sha256": new_hash}
+        approved[rel] = {
+            **row,
+            "path": rel,
+            "old_sha256": old_hash,
+            "new_sha256": new_hash,
+            "accepted_old_sha256": sorted(accepted_old),
+            "accepted_new_sha256": sorted(accepted_new),
+        }
     return approved
 
 
@@ -114,8 +138,8 @@ def verify_snapshot(path: Path = LEGACY_SNAPSHOT_PATH) -> dict:
         approval = approvals.get(rel)
         if (
             approval is not None
-            and approval["old_sha256"] == str(expected_hash).lower()
-            and approval["new_sha256"] == current_hash.lower()
+            and str(expected_hash).lower() in approval["accepted_old_sha256"]
+            and current_hash.lower() in approval["accepted_new_sha256"]
         ):
             approved_changes.append(approval)
         else:

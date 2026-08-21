@@ -12,6 +12,7 @@ import torch
 
 import run_all_models_all_datasets as runner
 from revision_experiments.analysis.main_comparison import summarize_main_comparison
+from revision_experiments.core.integrity import load_approved_changes
 from revision_experiments.main_comparison.deterministic_entrypoint import configure_determinism
 
 
@@ -100,6 +101,32 @@ class DeterminismTests(unittest.TestCase):
         self.assertEqual(first[0], second[0])
         self.assertEqual(first[1], second[1])
         torch.testing.assert_close(first[2], second[2])
+
+
+class IntegrityApprovalTests(unittest.TestCase):
+    def test_multiple_exact_cross_platform_hashes_are_loaded(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "approved.json"
+            old_a, old_b, new_a, new_b = ("a" * 64, "b" * 64, "c" * 64, "d" * 64)
+            path.write_text(
+                json.dumps(
+                    {
+                        "changes": [
+                            {
+                                "path": "runner.py",
+                                "old_sha256": old_a,
+                                "new_sha256": new_a,
+                                "accepted_old_sha256": [old_a, old_b],
+                                "accepted_new_sha256": [new_a, new_b],
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            approval = load_approved_changes(path)["runner.py"]
+            self.assertEqual(set(approval["accepted_old_sha256"]), {old_a, old_b})
+            self.assertEqual(set(approval["accepted_new_sha256"]), {new_a, new_b})
 
 
 class MainComparisonSummaryTests(unittest.TestCase):

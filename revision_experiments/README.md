@@ -4,8 +4,9 @@ This directory is an add-only experiment harness for the KNOSYS revision.  It
 imports the legacy TCNGATRE data/model helpers read-only, writes all generated
 files under `revision_results/`, and checks a SHA-256 snapshot of every tracked
 legacy file before and after a run. The only approved legacy change is the
-audited multi-seed extension to `run_all_models_all_datasets.py`; its exact old
-and new hashes are recorded in `manifests/approved_legacy_changes.json`.
+audited multi-seed extension to `run_all_models_all_datasets.py`; its exact known
+old/new content and LF/CRLF hashes are recorded in
+`manifests/approved_legacy_changes.json` for cross-platform verification.
 
 ## Commands
 
