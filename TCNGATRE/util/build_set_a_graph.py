@@ -340,11 +340,14 @@ def compute_one_mic_pair(
 def progress_iter(items, total: int, desc: str, progress_every: int):
     try:
         from tqdm import tqdm
+    except ImportError:
+        tqdm = None
 
+    if tqdm is not None:
+        # Do not catch exceptions raised while consuming `items`: MIC worker
+        # failures must abort the build instead of silently producing a zero graph.
         yield from tqdm(items, total=total, desc=desc, unit="pair", dynamic_ncols=True)
         return
-    except Exception:
-        pass
 
     start = time.time()
     every = max(int(progress_every), 1)
@@ -419,6 +422,10 @@ def compute_mic_adjacency(
         ]
 
     edge_rows = sorted(edge_rows, key=lambda row: (int(row["i"]), int(row["j"])))
+    if len(edge_rows) != total_pairs:
+        raise RuntimeError(
+            f"MIC pair computation is incomplete: expected {total_pairs}, got {len(edge_rows)}"
+        )
     for row in edge_rows:
         if int(row["kept"]):
             i = int(row["i"])
@@ -558,6 +565,7 @@ def main() -> int:
         "top_k_per_node": max(int(args.top_k_per_node), 0),
         "max_points_per_pair": int(args.max_points_per_pair),
         "num_workers": max(int(args.num_workers), 1),
+        "num_pair_results": len(edge_rows),
         "num_threshold_kept_edges": threshold_kept_edges,
         "num_kept_edges": int(sum(int(row["kept"]) for row in edge_rows)),
         "max_mic": float(adjacency.max()) if adjacency.size else 0.0,

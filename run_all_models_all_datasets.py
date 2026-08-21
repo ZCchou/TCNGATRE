@@ -119,6 +119,22 @@ INFER_OUTPUT_NAMES = {
 }
 
 
+def _tcngatre_data_protocol_signature(dataset: str) -> str:
+    paths = (
+        ROOT / "dataset" / str(dataset) / "dataset_manifest.json",
+        ROOT / "TCNGATRE" / "data" / "alfa_shared.py",
+        ROOT / "TCNGATRE" / "tcngatre_runtime.py",
+        ROOT / "TCNGATRE" / "util" / "build_set_a_graph.py",
+    )
+    digest = hashlib.sha256()
+    for path in paths:
+        if not path.is_file():
+            raise FileNotFoundError(f"TCNGATRE data protocol input is missing: {path}")
+        digest.update(path.relative_to(ROOT).as_posix().encode("utf-8"))
+        digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
 @dataclass
 class JobSpec:
     index: int
@@ -144,6 +160,12 @@ class JobSpec:
         return f"{self.dataset}/{self.model}/seed_{self.seed}"
 
     @property
+    def data_protocol_signature(self) -> str | None:
+        if self.model != "TCNGATRE":
+            return None
+        return _tcngatre_data_protocol_signature(self.dataset)
+
+    @property
     def signature(self) -> str:
         semantic_env = {
             key: value for key, value in self.env_overrides.items()
@@ -160,6 +182,8 @@ class JobSpec:
             "command": self.command,
             "env_overrides": semantic_env,
         }
+        if self.data_protocol_signature is not None:
+            payload["data_protocol_signature"] = self.data_protocol_signature
         raw = json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
         return hashlib.sha256(raw).hexdigest()
 
@@ -170,6 +194,7 @@ class JobSpec:
             payload[key] = None if value is None else str(value)
         payload["run_id"] = self.run_id
         payload["signature"] = self.signature
+        payload["data_protocol_signature"] = self.data_protocol_signature
         return payload
 
 
@@ -613,6 +638,7 @@ def _run_rows(jobs: list[JobSpec]) -> list[dict]:
                 "smoke": bool(job.smoke),
                 "determinism": job.determinism,
                 "plots": bool(job.plots),
+                "data_protocol_signature": job.data_protocol_signature,
                 "run_root": str(job.run_root),
                 "stages": ",".join(MODEL_SCRIPTS[job.model]),
             }
@@ -647,7 +673,12 @@ def _write_provenance(run_rows: list[dict], jobs: list[JobSpec], force: bool) ->
         run_root = Path(row["run_root"])
         provenance_path = run_root / "provenance.json"
         if provenance_path.exists() and not force:
-            continue
+            try:
+                existing = json.loads(provenance_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError, TypeError):
+                existing = {}
+            if existing.get("data_protocol_signature") == row.get("data_protocol_signature"):
+                continue
         first = run_jobs[0]
         payload = {
             **common,
@@ -711,6 +742,7 @@ def _finalize_seeded_runs(jobs: list[JobSpec]) -> None:
             "status": "complete" if all_complete else "partial",
             "run_id": run_id, "dataset": template.dataset, "model": template.model,
             "model_seed": template.seed, "data_split_policy": "fixed dataset manifest",
+            "data_protocol_signature": template.data_protocol_signature,
             "stages": status_by_stage,
             "finished_at_utc": datetime.now(timezone.utc).isoformat(),
         }

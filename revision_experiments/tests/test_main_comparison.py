@@ -108,6 +108,25 @@ class MainComparisonPlanningTests(unittest.TestCase):
                 )
             )
 
+    def test_tcngatre_stage_signatures_include_fixed_data_protocol(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            args = runner.parse_args(
+                [
+                    "--models", "USAD", "TCNGATRE",
+                    "--datasets", "alfa",
+                    "--seeds", "0",
+                    "--result-root", temporary,
+                ]
+            )
+            jobs, _ = runner.build_job_specs(args)
+            train_by_model = {job.model: job for job in jobs if job.stage == "train"}
+            self.assertIsNone(train_by_model["USAD"].data_protocol_signature)
+            self.assertEqual(len(train_by_model["TCNGATRE"].data_protocol_signature), 64)
+            self.assertNotEqual(
+                train_by_model["TCNGATRE"].signature,
+                train_by_model["USAD"].signature,
+            )
+
     def test_strict_profile_and_explicit_plots_are_available(self):
         with tempfile.TemporaryDirectory() as temporary:
             args = runner.parse_args(

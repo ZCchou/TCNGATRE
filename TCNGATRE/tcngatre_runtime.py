@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import argparse
+import csv
+import json
 import os
 import subprocess
 import sys
 from pathlib import Path
 
+from data.stgtcn_window_dataset import resolve_flight_splits
 from tcngatreconfig import BUNDLE_ROOT, TCNGATREConfig
 from utils.io import ensure_dir
 
@@ -25,12 +28,53 @@ def _run_subprocess(args: list[str]) -> None:
     subprocess.run(args, cwd=str(BUNDLE_ROOT), check=True)
 
 
+def expected_graph_flights(cfg: TCNGATREConfig) -> list[str]:
+    train_paths, _, _ = resolve_flight_splits(
+        dataset_root=Path(cfg.data_root),
+        split_info_path=Path(cfg.split_info_path),
+    )
+    flights = sorted(str(name) for name in train_paths)
+    if not flights:
+        raise RuntimeError(f"No normal training flights resolved for {cfg.dataset_name}")
+    return flights
+
+
+def graph_cache_matches(graph_dir: Path, expected_flights: list[str]) -> bool:
+    graph_dir = Path(graph_dir)
+    required = (
+        graph_dir / "keep_columns.json",
+        graph_dir / "adjacency_dense.csv",
+        graph_dir / "build_metadata.json",
+        graph_dir / "edges_mic.csv",
+    )
+    if not all(path.is_file() for path in required):
+        return False
+    try:
+        metadata = json.loads((graph_dir / "build_metadata.json").read_text(encoding="utf-8"))
+        included = sorted(str(name) for name in metadata.get("include_flights") or [])
+        count = int(metadata.get("num_input_files", -1))
+        nodes = json.loads((graph_dir / "keep_columns.json").read_text(encoding="utf-8"))
+        expected_pairs = len(nodes) * (len(nodes) - 1) // 2
+        pair_results = int(metadata.get("num_pair_results", -1))
+        with (graph_dir / "edges_mic.csv").open("r", encoding="utf-8-sig", newline="") as handle:
+            edge_rows = sum(1 for _ in csv.DictReader(handle))
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return False
+    expected = sorted(str(name) for name in expected_flights)
+    return (
+        included == expected
+        and count == len(expected)
+        and pair_results == expected_pairs
+        and edge_rows == expected_pairs
+    )
+
+
 def ensure_graph_ready(cfg: TCNGATREConfig) -> None:
-    keep_path = Path(cfg.graph_dir) / "keep_columns.json"
-    adj_path = Path(cfg.graph_dir) / "adjacency_dense.csv"
-    if keep_path.exists() and adj_path.exists() and not bool(cfg.graph_overwrite):
+    graph_dir = Path(cfg.graph_dir)
+    train_flights = expected_graph_flights(cfg)
+    if graph_cache_matches(graph_dir, train_flights) and not bool(cfg.graph_overwrite):
         return
-    ensure_dir(Path(cfg.graph_dir))
+    ensure_dir(graph_dir)
     # top_k_per_node=0 → keep all edges passing MIC threshold (no topk filtering)
     cmd = [
         sys.executable,
@@ -46,10 +90,15 @@ def ensure_graph_ready(cfg: TCNGATREConfig) -> None:
         "--top_k_per_node", "0",
         "--max_points_per_pair", str(cfg.graph_max_points_per_pair),
         "--num_workers", str(cfg.graph_num_workers),
+        "--include_flights", *train_flights,
+        "--overwrite",
     ]
-    if bool(cfg.graph_overwrite):
-        cmd.append("--overwrite")
     _run_subprocess(cmd)
+    if not graph_cache_matches(graph_dir, train_flights):
+        raise RuntimeError(
+            f"MIC graph provenance mismatch after build: {graph_dir}; "
+            f"expected {len(train_flights)} training flights"
+        )
 
 
 def _set_env(name: str, value) -> None:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,9 +18,30 @@ from utils.normalization import apply_train_minmax, load_wide_flight_frame  # no
 
 
 COMMON_DATA_ROOT = RESULTS_ROOT / "protocol_v1" / "_baseline_common_data"
-EXPORT_SCHEMA_VERSION = 3
-EXPORT_PROFILE = "canonical_full_protocol_v1"
+EXPORT_SCHEMA_VERSION = 4
+EXPORT_PROFILE = "canonical_fixed_manifest_protocol_v2"
 SPLITS = ("train", "validation", "failure")
+
+
+def split_fingerprint(split_names: dict[str, list[str]]) -> str:
+    canonical = {
+        split: sorted(str(name) for name in split_names.get(split, []))
+        for split in SPLITS
+    }
+    encoded = json.dumps(canonical, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _current_expected_split_names(dataset: str) -> dict[str, list[str]] | None:
+    data_root = REPO_ROOT / "dataset" / str(dataset)
+    if not (data_root / "dataset_manifest.json").is_file():
+        return None
+    train, validation, failure = resolve_flight_splits(dataset_root=data_root)
+    return {
+        "train": sorted(str(name) for name in train),
+        "validation": sorted(str(name) for name in validation),
+        "failure": sorted(str(name) for name in failure),
+    }
 
 
 def _portable_path(path: Path) -> str:
@@ -76,6 +98,10 @@ def validate_common_data(
         errors.append(f"dataset mismatch: {payload.get('dataset')!r}")
     if payload.get("labels_exported") is not False:
         errors.append("labels_exported must be false")
+    try:
+        int(payload["data_split_seed"])
+    except (KeyError, TypeError, ValueError):
+        errors.append("data_split_seed must be recorded")
     graph_profile = payload.get("graph_profile")
     try:
         graph_points = int(graph_profile.get("max_points_per_pair", 0))
@@ -93,11 +119,17 @@ def validate_common_data(
         errors.append("nodes must be a non-empty unique list")
         nodes = []
 
+    actual_split_names: dict[str, list[str]] = {}
     for split in SPLITS:
         records = payload.get(split)
         if not isinstance(records, list) or not records:
             errors.append(f"{split} must contain at least one flight")
+            actual_split_names[split] = []
             continue
+        names = [str(record.get("flight", "")) for record in records if isinstance(record, dict)]
+        actual_split_names[split] = names
+        if any(not name for name in names) or len(names) != len(set(names)):
+            errors.append(f"{split} flight names must be non-empty and unique")
         for index, record in enumerate(records):
             if not isinstance(record, dict):
                 errors.append(f"{split}[{index}] is not an object")
@@ -138,6 +170,35 @@ def validate_common_data(
                 except Exception as exc:
                     errors.append(f"{split}[{index}] cannot be read: {exc!r}")
 
+    split_sets = {split: set(actual_split_names.get(split, [])) for split in SPLITS}
+    for left, right in (("train", "validation"), ("train", "failure"), ("validation", "failure")):
+        overlap = sorted(split_sets[left].intersection(split_sets[right]))
+        if overlap:
+            errors.append(f"{left}/{right} flight overlap: {overlap}")
+
+    actual_fingerprint = split_fingerprint(actual_split_names)
+    if payload.get("split_fingerprint") != actual_fingerprint:
+        errors.append("split_fingerprint does not match manifest flight lists")
+
+    expected_split_names = _current_expected_split_names(dataset)
+    if expected_split_names is not None:
+        for split in SPLITS:
+            if sorted(actual_split_names.get(split, [])) != expected_split_names[split]:
+                errors.append(
+                    f"{split} flights do not match the current fixed dataset manifest protocol"
+                )
+
+    if isinstance(graph_profile, dict):
+        graph_flights = sorted(str(name) for name in graph_profile.get("include_flights") or [])
+        if graph_flights != sorted(actual_split_names.get("train", [])):
+            errors.append("graph_profile.include_flights must equal the normal training split")
+        try:
+            graph_count = int(graph_profile.get("num_input_files", -1))
+        except (TypeError, ValueError):
+            graph_count = -1
+        if graph_count != len(actual_split_names.get("train", [])):
+            errors.append("graph_profile.num_input_files must equal the normal training count")
+
     if errors:
         raise RuntimeError("Invalid common baseline data:\n- " + "\n- ".join(errors))
     return payload
@@ -155,14 +216,36 @@ def export_dataset(legacy_cfg, output_root: Path = COMMON_DATA_ROOT) -> dict:
         dataset_root=Path(legacy_cfg.data_root),
         split_info_path=Path(legacy_cfg.split_info_path),
     )
+    split_names = {
+        "train": sorted(str(name) for name in train),
+        "validation": sorted(str(name) for name in validation),
+        "failure": sorted(str(name) for name in failure),
+    }
+    graph_metadata_path = Path(legacy_cfg.graph_dir) / "build_metadata.json"
+    if not graph_metadata_path.is_file():
+        raise FileNotFoundError(f"MIC graph metadata is missing: {graph_metadata_path}")
+    graph_metadata = json.loads(graph_metadata_path.read_text(encoding="utf-8"))
+    graph_flights = sorted(str(name) for name in graph_metadata.get("include_flights") or [])
+    if graph_flights != split_names["train"]:
+        raise RuntimeError(
+            "MIC graph was not built exclusively from the fixed normal training split"
+        )
     manifest = {
         "schema_version": EXPORT_SCHEMA_VERSION,
         "export_profile": EXPORT_PROFILE,
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
         "dataset": legacy_cfg.dataset_name,
         "data_split_seed": int(legacy_cfg.split_seed),
+        "split_fingerprint": split_fingerprint(split_names),
+        "split_policy": {
+            "source": "dataset_manifest fixed flight lists",
+            "prefail_normal_policy": "train_only",
+            "counts": {split: len(names) for split, names in split_names.items()},
+        },
         "graph_profile": {
             "source": "normal training flights only",
+            "include_flights": graph_flights,
+            "num_input_files": int(graph_metadata.get("num_input_files", -1)),
             "max_points_per_pair": int(legacy_cfg.graph_max_points_per_pair),
             "mic_alpha": float(legacy_cfg.graph_mic_alpha),
             "mic_c": int(legacy_cfg.graph_mic_c),

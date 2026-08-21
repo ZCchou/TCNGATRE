@@ -3,9 +3,9 @@
 This directory is an add-only experiment harness for the KNOSYS revision.  It
 imports the legacy TCNGATRE data/model helpers read-only, writes all generated
 files under `revision_results/`, and checks a SHA-256 snapshot of every tracked
-legacy file before and after a run. The only approved legacy change is the
-audited multi-seed extension to `run_all_models_all_datasets.py`; its exact known
-old/new content and LF/CRLF hashes are recorded in
+legacy file before and after a run. Approved, hash-pinned legacy changes cover
+the audited multi-seed runner, the fixed manifest split resolver, and strict
+train-only MIC graph provenance. Their exact known hashes are recorded in
 `manifests/approved_legacy_changes.json` for cross-platform verification.
 
 ## Commands
@@ -65,6 +65,12 @@ Baseline common data is prepared automatically on first launch. The explicit
 `prepare-baseline-data` command is available for preflight checks. It always
 uses the full protocol graph settings, writes no failure labels, validates all
 exported arrays, and reuses the validated export across models and seeds.
+
+The manifests enforce fixed flight lists. ALFA uses 29 normal training flights
+(9 legacy normal flights plus 20 `__prefail_normal` segments), 1 normal
+validation flight, and 16 failure test flights. MIC graphs use the training
+list only. Cached graphs, checkpoints, completed-run markers, and common
+baseline exports without the current split fingerprint are treated as stale.
 
 Copy `envs/runtime_paths.example.json` to `envs/runtime_paths.json` and replace
 the placeholders with the absolute Python executable paths of the two isolated

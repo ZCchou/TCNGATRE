@@ -14,6 +14,7 @@ from revision_experiments.baselines.common_data import CommonDataBundle, FlightW
 from revision_experiments.baselines.export_common_data import (
     EXPORT_PROFILE,
     EXPORT_SCHEMA_VERSION,
+    split_fingerprint,
     validate_common_data,
 )
 from revision_experiments.core.config import make_config
@@ -112,9 +113,16 @@ class BaselineCommonDataTests(unittest.TestCase):
             "schema_version": EXPORT_SCHEMA_VERSION,
             "export_profile": EXPORT_PROFILE,
             "dataset": "toy",
+            "data_split_seed": 64,
+            "split_fingerprint": split_fingerprint({
+                "train": ["train"], "validation": ["validation"], "failure": ["failure"]
+            }),
+            "split_policy": {"source": "test", "prefail_normal_policy": "train_only"},
             "graph_profile": {
                 "source": "normal training flights only",
                 "max_points_per_pair": 200000,
+                "include_flights": ["train"],
+                "num_input_files": 1,
             },
             "nodes": ["a", "b"],
             "normalization_source": "normal training flights only",
@@ -137,8 +145,26 @@ class BaselineCommonDataTests(unittest.TestCase):
                 np.savez_compressed(path, time=np.arange(8), values=np.full((8, 2), value, np.float32))
                 records.append({"flight": flight, "path": str(path), "rows": 8, "channels": 2})
             manifest = {
-                "dataset": "toy", "nodes": ["a", "b"], "normalization_source": "normal training flights only",
-                "labels_exported": False, "train": records[:2], "validation": [records[0]], "failure": [records[2]],
+                "schema_version": EXPORT_SCHEMA_VERSION,
+                "export_profile": EXPORT_PROFILE,
+                "dataset": "toy",
+                "data_split_seed": 64,
+                "split_fingerprint": split_fingerprint({
+                    "train": ["f0", "f1"], "validation": ["validation"], "failure": ["failure"]
+                }),
+                "split_policy": {"source": "test", "prefail_normal_policy": "train_only"},
+                "graph_profile": {
+                    "source": "normal training flights only",
+                    "max_points_per_pair": 200000,
+                    "include_flights": ["f0", "f1"],
+                    "num_input_files": 2,
+                },
+                "nodes": ["a", "b"],
+                "normalization_source": "normal training flights only",
+                "labels_exported": False,
+                "train": records[:2],
+                "validation": [{**records[0], "flight": "validation"}],
+                "failure": [records[2]],
             }
             (dataset_root / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
             bundle = CommonDataBundle("toy", root=root)
@@ -169,6 +195,52 @@ class BaselineCommonDataTests(unittest.TestCase):
             manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
             with self.assertRaisesRegex(RuntimeError, "labels_exported"):
                 validate_common_data("toy", root, verify_arrays=True)
+
+    def test_tcngatre_fixed_splits_include_prefail_normal_training_flights(self):
+        from data.alfa_shared import build_flight_path_maps
+
+        repo_root = Path(__file__).resolve().parents[2]
+        expected = {
+            "alfa": (29, 1, 16, 20),
+            "gpsdata": (1, 1, 2, 0),
+            "simulate": (8, 2, 2, 0),
+        }
+        for dataset, counts in expected.items():
+            train, validation, failure, metadata = build_flight_path_maps(
+                repo_root / "dataset" / dataset
+            )
+            prefail_count = len(metadata["prefail_normal"])
+            self.assertEqual((len(train), len(validation), len(failure), prefail_count), counts)
+            self.assertFalse(metadata["expected_count_mismatches"])
+
+    def test_graph_cache_requires_exact_training_flight_provenance(self):
+        from tcngatre_runtime import graph_cache_matches
+
+        with tempfile.TemporaryDirectory() as temporary:
+            graph_root = Path(temporary)
+            (graph_root / "keep_columns.json").write_text('["a", "b"]', encoding="utf-8")
+            (graph_root / "adjacency_dense.csv").write_text("node\n", encoding="utf-8")
+            (graph_root / "edges_mic.csv").write_text(
+                "src,dst,mic,overlap,kept\na,b,0.5,100,1\n", encoding="utf-8"
+            )
+            metadata_path = graph_root / "build_metadata.json"
+            metadata_path.write_text(json.dumps({
+                "include_flights": ["train_a", "train_b"],
+                "num_input_files": 2,
+                "num_pair_results": 1,
+            }), encoding="utf-8")
+            self.assertTrue(graph_cache_matches(graph_root, ["train_b", "train_a"]))
+            self.assertFalse(graph_cache_matches(graph_root, ["train_a"]))
+
+    def test_mic_progress_does_not_swallow_worker_failures(self):
+        from util.build_set_a_graph import progress_iter
+
+        def broken_items():
+            yield 1
+            raise RuntimeError("worker failed")
+
+        with self.assertRaisesRegex(RuntimeError, "worker failed"):
+            list(progress_iter(broken_items(), total=2, desc="test", progress_every=1))
 
 
 if __name__ == "__main__":

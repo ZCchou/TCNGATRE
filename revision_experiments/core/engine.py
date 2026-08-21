@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import random
@@ -64,6 +65,30 @@ def _device(legacy_cfg) -> torch.device:
     if legacy_cfg.device == "auto":
         return torch.device("cuda" if torch.cuda.is_available() else "cpu")
     return torch.device(legacy_cfg.device)
+
+
+def data_protocol_payload(legacy_cfg) -> dict[str, object]:
+    train_paths, val_paths, failure_paths = resolve_flight_splits(
+        dataset_root=Path(legacy_cfg.data_root),
+        split_info_path=Path(legacy_cfg.split_info_path),
+    )
+    manifest_path = Path(legacy_cfg.split_info_path)
+    manifest_sha256 = (
+        hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+        if manifest_path.is_file() else None
+    )
+    payload: dict[str, object] = {
+        "source": "fixed dataset manifest; prefail normal is train-only",
+        "dataset": str(legacy_cfg.dataset_name),
+        "data_split_seed": int(legacy_cfg.split_seed),
+        "manifest_sha256": manifest_sha256,
+        "train_flights": sorted(str(name) for name in train_paths),
+        "validation_flights": sorted(str(name) for name in val_paths),
+        "failure_flights": sorted(str(name) for name in failure_paths),
+    }
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    payload["data_protocol_hash"] = hashlib.sha256(encoded).hexdigest()
+    return payload
 
 
 def _run_epoch(
@@ -222,19 +247,28 @@ def execute_training_run(cfg: RevisionConfig, force: bool = False) -> dict:
     verify_snapshot()
     run_dir = cfg.run_dir
     run_dir.mkdir(parents=True, exist_ok=True)
+    legacy_cfg = cfg.to_legacy()
+    data_protocol = data_protocol_payload(legacy_cfg)
+    data_protocol_hash = str(data_protocol["data_protocol_hash"])
     done_path = run_dir / "DONE.json"
     if done_path.exists() and not force:
         done = json.loads(done_path.read_text(encoding="utf-8"))
-        if done.get("config_hash") == cfg.config_hash:
+        if (
+            done.get("config_hash") == cfg.config_hash
+            and done.get("data_protocol_hash") == data_protocol_hash
+        ):
             return {"status": "skipped_complete", "run_dir": str(run_dir), **done}
 
-    write_json(run_dir / "config_resolved.json", cfg.to_dict())
-    legacy_cfg = cfg.to_legacy()
+    write_json(run_dir / "config_resolved.json", {**cfg.to_dict(), "data_protocol": data_protocol})
     try:
         randomness = set_model_seed(cfg.model_seed)
         write_json(
             run_dir / "provenance.json",
-            {**environment_payload(REPO_ROOT), "randomness": randomness},
+            {
+                **environment_payload(REPO_ROOT),
+                "randomness": randomness,
+                "data_protocol": data_protocol,
+            },
         )
         ensure_graph_ready(legacy_cfg)
         device = _device(legacy_cfg)
@@ -256,7 +290,10 @@ def execute_training_run(cfg: RevisionConfig, force: bool = False) -> dict:
         last_path = run_dir / "last.pt"
         if last_path.exists() and not force:
             checkpoint = torch.load(last_path, map_location=device)
-            if checkpoint.get("config_hash") == cfg.config_hash:
+            if (
+                checkpoint.get("config_hash") == cfg.config_hash
+                and checkpoint.get("data_protocol_hash") == data_protocol_hash
+            ):
                 model.load_state_dict(checkpoint["model"], strict=True)
                 optimizer.load_state_dict(checkpoint["optimizer"])
                 history = list(checkpoint.get("history", []))
@@ -342,6 +379,7 @@ def execute_training_run(cfg: RevisionConfig, force: bool = False) -> dict:
                 "best_epoch": best_epoch,
                 "patience": patience,
                 "config_hash": cfg.config_hash,
+                "data_protocol_hash": data_protocol_hash,
                 "revision_config": cfg.to_dict(),
                 "sensor_names": nodes,
             }
@@ -363,8 +401,10 @@ def execute_training_run(cfg: RevisionConfig, force: bool = False) -> dict:
             "data_split_seed": cfg.data_split_seed,
             "model_seed": cfg.model_seed,
             "split_source": split_source,
-            "train_flights": sorted(train_ds.flights),
-            "val_flights": sorted(val_ds.flights),
+            "data_protocol_hash": data_protocol_hash,
+            "train_flights": data_protocol["train_flights"],
+            "val_flights": data_protocol["validation_flights"],
+            "failure_flights_scored_only": data_protocol["failure_flights"],
         }
         write_json(run_dir / "split_flights.json", split_payload)
 
@@ -406,6 +446,7 @@ def execute_training_run(cfg: RevisionConfig, force: bool = False) -> dict:
         done = {
             "status": "complete",
             "config_hash": cfg.config_hash,
+            "data_protocol_hash": data_protocol_hash,
             "run_dir": str(run_dir),
             "best_val_loss": float(best),
             "best_epoch": int(best_epoch),
@@ -423,6 +464,7 @@ def execute_training_run(cfg: RevisionConfig, force: bool = False) -> dict:
         failure = {
             "status": "failed",
             "config_hash": cfg.config_hash,
+            "data_protocol_hash": data_protocol_hash,
             "error": repr(exc),
             "traceback": traceback.format_exc(),
         }
@@ -434,14 +476,24 @@ def execute_robustness_inference(cfg: RevisionConfig, source_run: Path, force: b
     """Evaluate a clean full checkpoint under a deterministic test-time corruption."""
     verify_snapshot()
     source_run = Path(source_run)
-    if not (source_run / "DONE.json").exists():
+    source_done_path = source_run / "DONE.json"
+    if not source_done_path.exists():
         raise FileNotFoundError(f"Clean source run is incomplete: {source_run}")
+    source_done = json.loads(source_done_path.read_text(encoding="utf-8"))
+    source_data_protocol_hash = str(source_done.get("data_protocol_hash", ""))
+    if not source_data_protocol_hash:
+        raise RuntimeError(
+            f"Clean source run predates fixed split provenance and must be retrained: {source_run}"
+        )
     run_dir = cfg.run_dir
     run_dir.mkdir(parents=True, exist_ok=True)
     done_path = run_dir / "DONE.json"
     if done_path.exists() and not force:
         payload = json.loads(done_path.read_text(encoding="utf-8"))
-        if payload.get("config_hash") == cfg.config_hash:
+        if (
+            payload.get("config_hash") == cfg.config_hash
+            and payload.get("source_data_protocol_hash") == source_data_protocol_hash
+        ):
             return {"status": "skipped_complete", **payload}
 
     legacy_cfg = cfg.to_legacy()
@@ -481,12 +533,14 @@ def execute_robustness_inference(cfg: RevisionConfig, source_run: Path, force: b
     write_json(run_dir / "provenance.json", {
         **environment_payload(REPO_ROOT),
         "clean_checkpoint_source": str(source_run / "best.pt"),
+        "source_data_protocol_hash": source_data_protocol_hash,
     })
     write_json(infer_dir / "corruption_manifest.json", corruption_log)
     primary = evaluate_scores(run_dir, cfg, legacy_cfg)
     done = {
         "status": "complete",
         "config_hash": cfg.config_hash,
+        "source_data_protocol_hash": source_data_protocol_hash,
         "source_run": str(source_run),
         "primary_metrics": primary,
         "legacy_integrity": verify_snapshot(),

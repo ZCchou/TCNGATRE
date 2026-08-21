@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import importlib
 import math
 import subprocess
 import sys
@@ -21,10 +22,25 @@ from .finalize import finalize_run, record_failure
 BASELINE = "carots"
 
 
+def _clear_official_namespace_conflicts() -> None:
+    # CAROTS uses repository-top-level packages named `models`, `layers`, and
+    # `utils`. TCNGATRE common-data preparation imports its own `utils` first;
+    # without clearing that cached package, `utils.masking` resolves against the
+    # wrong repository even when the CAROTS source root is first on sys.path.
+    prefixes = ("models", "layers", "utils")
+    for name in list(sys.modules):
+        if any(name == prefix or name.startswith(f"{prefix}.") for prefix in prefixes):
+            del sys.modules[name]
+    importlib.invalidate_caches()
+
+
 def _official_imports():
     source_root = EXTERNAL_ROOT / BASELINE
-    if str(source_root) not in sys.path:
-        sys.path.insert(0, str(source_root))
+    source_text = str(source_root)
+    while source_text in sys.path:
+        sys.path.remove(source_text)
+    sys.path.insert(0, source_text)
+    _clear_official_namespace_conflicts()
     from config import get_cfg_defaults
     from models.carots.loss import loss_fn
     from models.carots.modeling_carots import CAROTS

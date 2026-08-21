@@ -49,9 +49,9 @@ class CommonDataBundle:
             raise FileNotFoundError(f"Common baseline data is missing: {manifest_path}")
         self.manifest_path = manifest_path
         self.manifest_sha256 = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
-        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-        if payload.get("labels_exported") is not False:
-            raise RuntimeError("Baseline common data must not contain failure labels")
+        from revision_experiments.baselines.export_common_data import validate_common_data
+
+        payload = validate_common_data(self.dataset, root, verify_arrays=False)
         self.nodes = list(payload["nodes"])
         self.normalization_source = payload["normalization_source"]
         self.splits = {

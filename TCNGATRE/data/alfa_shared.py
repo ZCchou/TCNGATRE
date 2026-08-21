@@ -73,15 +73,28 @@ def discover_labels_root(dataset_root: Path, manifest: dict | None = None) -> Pa
     return labels_root
 
 
-def _build_split_map(split_dir: Path) -> dict[str, Path]:
-    out: dict[str, Path] = {}
-    if not split_dir.exists():
-        return out
-    for csv_path in sorted(split_dir.glob("*.csv")):
-        if not _is_wide_flight_csv(csv_path):
-            continue
-        out[str(csv_path.stem)] = csv_path
-    return out
+def _validate_expected_counts(
+    expected_counts: dict,
+    no_failure_paths: dict[str, Path],
+    classic_no_failure: dict[str, Path],
+    prefail_normal: dict[str, Path],
+    failure_paths: dict[str, Path],
+    train_paths: dict[str, Path],
+    val_paths: dict[str, Path],
+) -> dict:
+    actual_counts = {
+        "no_failure_total": len(no_failure_paths),
+        "classic_no_failure": len(classic_no_failure),
+        "prefail_normal": len(prefail_normal),
+        "failure_total": len(failure_paths),
+        "train_normal": len(train_paths),
+        "val_normal": len(val_paths),
+    }
+    return {
+        key: {"expected": int(expected_counts[key]), "actual": int(actual_counts[key])}
+        for key in expected_counts
+        if key in actual_counts and int(expected_counts[key]) != int(actual_counts[key])
+    }
 
 
 def build_flight_path_maps(dataset_root: Path) -> tuple[dict[str, Path], dict[str, Path], dict[str, Path], dict]:
@@ -89,39 +102,69 @@ def build_flight_path_maps(dataset_root: Path) -> tuple[dict[str, Path], dict[st
     manifest = load_dataset_manifest(dataset_root)
     wide_root = discover_wide_root(dataset_root)
     labels_root = discover_labels_root(dataset_root, manifest=manifest)
+    prefail_suffix = str(manifest.get("prefail_normal_suffix", "__prefail_normal"))
+    prefail_policy = str(manifest.get("prefail_normal_policy", "train_only")).strip().lower()
 
-    no_failure_paths = _build_split_map(wide_root / "No_Failure")
-    failure_paths = _build_split_map(wide_root / "Failure")
+    no_failure_paths = {
+        path.stem: path
+        for path in sorted((wide_root / "No_Failure").glob("*.csv"))
+        if _is_wide_flight_csv(path)
+    }
+    failure_paths = {
+        path.stem: path
+        for path in sorted((wide_root / "Failure").glob("*.csv"))
+        if _is_wide_flight_csv(path)
+    }
+    classic_no_failure = {
+        name: path for name, path in no_failure_paths.items() if not name.endswith(prefail_suffix)
+    }
+    prefail_normal = {
+        name: path for name, path in no_failure_paths.items() if name.endswith(prefail_suffix)
+    }
+    if prefail_normal and prefail_policy != "train_only":
+        raise ValueError(
+            f"Unsupported prefail_normal_policy={prefail_policy!r}; expected 'train_only'"
+        )
 
     legacy_train = [str(x) for x in manifest.get("legacy_train_flights", [])]
     legacy_val = [str(x) for x in manifest.get("legacy_val_flights", [])]
+    missing_train = [name for name in legacy_train if name not in classic_no_failure]
+    missing_val = [name for name in legacy_val if name not in classic_no_failure]
+    if missing_train or missing_val:
+        raise ValueError(
+            "Legacy split flights missing from shared dataset: "
+            f"train={missing_train} val={missing_val}"
+        )
 
-    if legacy_train or legacy_val:
-        missing = [name for name in [*legacy_train, *legacy_val] if name not in no_failure_paths]
-        if missing:
-            raise ValueError(
-                "Legacy split flights missing from shared dataset: "
-                + ", ".join(sorted(missing))
-            )
-        train_paths = {name: no_failure_paths[name] for name in legacy_train}
-        val_paths = {name: no_failure_paths[name] for name in legacy_val}
-    else:
-        names = sorted(no_failure_paths.keys())
-        if len(names) <= 1:
-            train_paths = {name: no_failure_paths[name] for name in names}
-            val_paths = {name: no_failure_paths[name] for name in names}
-        else:
-            split_idx = max(1, len(names) - 1)
-            train_names = names[:split_idx]
-            val_names = names[split_idx:]
-            train_paths = {name: no_failure_paths[name] for name in train_names}
-            val_paths = {name: no_failure_paths[name] for name in val_names}
+    train_paths = {name: classic_no_failure[name] for name in legacy_train}
+    train_paths.update(prefail_normal)
+    val_paths = {name: classic_no_failure[name] for name in legacy_val}
+    overlap = sorted(set(train_paths).intersection(val_paths))
+    if overlap:
+        raise ValueError(f"Train/validation flight overlap: {overlap}")
+
+    expected_count_mismatches = {}
+    expected_counts = manifest.get("expected_counts", {})
+    if isinstance(expected_counts, dict) and expected_counts:
+        expected_count_mismatches = _validate_expected_counts(
+            expected_counts=expected_counts,
+            no_failure_paths=no_failure_paths,
+            classic_no_failure=classic_no_failure,
+            prefail_normal=prefail_normal,
+            failure_paths=failure_paths,
+            train_paths=train_paths,
+            val_paths=val_paths,
+        )
+        if expected_count_mismatches:
+            raise ValueError(f"Dataset manifest count mismatch: {expected_count_mismatches}")
 
     metadata = {
         "manifest": manifest,
         "wide_root": wide_root,
         "labels_root": labels_root,
-        "no_failure_paths": no_failure_paths,
-        "failure_paths": failure_paths,
+        "classic_no_failure": classic_no_failure,
+        "prefail_normal": prefail_normal,
+        "all_no_failure": no_failure_paths,
+        "expected_count_mismatches": expected_count_mismatches,
     }
     return train_paths, val_paths, failure_paths, metadata
