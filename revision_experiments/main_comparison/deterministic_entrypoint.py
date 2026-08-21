@@ -10,9 +10,10 @@ from pathlib import Path
 
 def parse_args(argv: list[str] | None = None) -> tuple[argparse.Namespace, list[str]]:
     parser = argparse.ArgumentParser(
-        description="Execute a legacy experiment script with deterministic random state."
+        description="Execute a legacy experiment script with a controlled random state."
     )
     parser.add_argument("--seed", type=int, required=True)
+    parser.add_argument("--determinism", choices=["seeded", "strict"], default="seeded")
     parser.add_argument("--script", type=Path, required=True)
     raw = list(sys.argv[1:] if argv is None else argv)
     if "--" in raw:
@@ -24,11 +25,14 @@ def parse_args(argv: list[str] | None = None) -> tuple[argparse.Namespace, list[
     return args, script_args
 
 
-def configure_determinism(seed: int) -> dict[str, str | int | bool]:
+def configure_determinism(seed: int, mode: str = "seeded") -> dict[str, str | int | bool | None]:
     if int(seed) < 0:
         raise ValueError("seed must be non-negative")
     os.environ["PYTHONHASHSEED"] = str(seed)
-    os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
+    if mode == "strict":
+        os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
+    else:
+        os.environ.pop("CUBLAS_WORKSPACE_CONFIG", None)
 
     import numpy as np
     import torch
@@ -37,13 +41,15 @@ def configure_determinism(seed: int) -> dict[str, str | int | bool]:
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
-    torch.use_deterministic_algorithms(True, warn_only=True)
+    strict = mode == "strict"
+    torch.backends.cudnn.deterministic = strict
+    torch.backends.cudnn.benchmark = not strict
+    torch.use_deterministic_algorithms(strict, warn_only=True)
     return {
         "seed": int(seed),
+        "mode": mode,
         "pythonhashseed": os.environ["PYTHONHASHSEED"],
-        "cublas_workspace_config": os.environ["CUBLAS_WORKSPACE_CONFIG"],
+        "cublas_workspace_config": os.environ.get("CUBLAS_WORKSPACE_CONFIG"),
         "cudnn_deterministic": bool(torch.backends.cudnn.deterministic),
         "cudnn_benchmark": bool(torch.backends.cudnn.benchmark),
         "deterministic_algorithms": bool(torch.are_deterministic_algorithms_enabled()),
@@ -57,8 +63,8 @@ def main(argv: list[str] | None = None) -> None:
     script = args.script.expanduser().resolve()
     if not script.is_file():
         raise FileNotFoundError(f"Experiment entrypoint not found: {script}")
-    state = configure_determinism(int(args.seed))
-    print(f"[DETERMINISM] {state}", flush=True)
+    state = configure_determinism(int(args.seed), mode=str(args.determinism))
+    print(f"[RANDOMNESS] {state}", flush=True)
 
     script_dir = str(script.parent)
     if script_dir not in sys.path:

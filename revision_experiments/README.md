@@ -34,6 +34,16 @@ python run_all_models_all_datasets.py --datasets simulate --seeds 0 --smoke --ke
 python run_all_models_all_datasets.py --seeds 0 1 2 3 4 --keep-going
 ```
 
+Seeded formal runs default to the performance-oriented `--determinism seeded`
+policy: Python, NumPy, PyTorch and CUDA RNG seeds are fixed, while globally
+forcing slow deterministic CUDA kernels is avoided. This matches the purpose
+of five-seed statistical repetition; exact bitwise reruns can still be requested
+with `--determinism strict`. Native per-flight plotting is disabled by default
+because it does not affect scores or Micro metrics; pass `--plots` when those
+diagnostic figures are specifically needed. Model architecture, epoch counts,
+batch sizes, optimizer settings, data splits, inference scores and thresholds
+are unchanged from the original single-seed commands.
+
 The primary comparison collector uses only the Micro result selected from the
 global `summary_metrics.csv` row with `threshold_method=spot` and
 `label_col=label_any`. Per-flight files remain native diagnostic artifacts but

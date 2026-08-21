@@ -69,6 +69,32 @@ class MainComparisonPlanningTests(unittest.TestCase):
                 self.assertEqual(by_model[model].env_overrides["PYTHONHASHSEED"], "3")
             self.assertIn("UAV_TCNGATRE_GRAPH_DIR", by_model["TCNGATRE"].env_overrides)
 
+    def test_default_seeded_profile_keeps_metrics_and_disables_expensive_plots(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            args = runner.parse_args(
+                ["--models", "TCNGATRE", "--datasets", "simulate", "--seeds", "0", "--result-root", temporary]
+            )
+            jobs, _ = runner.build_job_specs(args)
+            train = next(job for job in jobs if job.stage == "train")
+            self.assertEqual(train.determinism, "seeded")
+            self.assertFalse(train.plots)
+            self.assertNotIn("CUBLAS_WORKSPACE_CONFIG", train.env_overrides)
+            self.assertEqual(train.env_overrides["UAV_TCNGATRE_PLOT_SCORES"], "0")
+            self.assertIn("seeded", train.command)
+
+    def test_strict_profile_and_explicit_plots_are_available(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            args = runner.parse_args(
+                [
+                    "--models", "TCNGATRE", "--datasets", "simulate", "--seeds", "0",
+                    "--determinism", "strict", "--plots", "--result-root", temporary,
+                ]
+            )
+            jobs, _ = runner.build_job_specs(args)
+            train = next(job for job in jobs if job.stage == "train")
+            self.assertEqual(train.env_overrides["CUBLAS_WORKSPACE_CONFIG"], ":4096:8")
+            self.assertEqual(train.env_overrides["UAV_TCNGATRE_PLOT_SCORES"], "1")
+
     def test_smoke_mode_sets_one_epoch_and_disables_plots(self):
         with tempfile.TemporaryDirectory() as temporary:
             args = runner.parse_args(
@@ -101,6 +127,12 @@ class DeterminismTests(unittest.TestCase):
         self.assertEqual(first[0], second[0])
         self.assertEqual(first[1], second[1])
         torch.testing.assert_close(first[2], second[2])
+
+    def test_strict_mode_enables_deterministic_algorithms(self):
+        state = configure_determinism(7, mode="strict")
+        self.assertTrue(state["deterministic_algorithms"])
+        self.assertTrue(state["cudnn_deterministic"])
+        configure_determinism(7, mode="seeded")
 
 
 class IntegrityApprovalTests(unittest.TestCase):

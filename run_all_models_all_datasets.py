@@ -133,6 +133,8 @@ class JobSpec:
     env_overrides: dict[str, str]
     stage_marker: Path | None
     smoke: bool
+    determinism: str
+    plots: bool
 
     @property
     def run_id(self) -> str:
@@ -152,6 +154,8 @@ class JobSpec:
             "stage": self.stage,
             "seed": self.seed,
             "smoke": self.smoke,
+            "determinism": self.determinism,
+            "plots": self.plots,
             "command": self.command,
             "env_overrides": semantic_env,
         }
@@ -222,6 +226,23 @@ def parse_args(argv: list[str] | None = None):
         help="Run one training epoch and disable score plotting. Requires --seeds.",
     )
     parser.add_argument(
+        "--determinism",
+        choices=["seeded", "strict"],
+        default="seeded",
+        help=(
+            "Randomness policy for seeded runs. 'seeded' fixes all RNG seeds while allowing "
+            "optimized CUDA kernels; 'strict' additionally requests deterministic PyTorch kernels."
+        ),
+    )
+    parser.add_argument(
+        "--plots",
+        action="store_true",
+        help=(
+            "Generate native per-flight score plots in seeded formal runs. Disabled by default "
+            "because plots do not affect Micro metrics and add substantial I/O."
+        ),
+    )
+    parser.add_argument(
         "--force",
         action="store_true",
         help="Rerun seeded stages even when matching completion markers already exist.",
@@ -245,8 +266,14 @@ def parse_args(argv: list[str] | None = None):
         ),
     )
     args = parser.parse_args(argv)
-    if args.seeds is None and (args.smoke or args.force or args.result_root is not None):
-        parser.error("--smoke, --force and --result-root require --seeds")
+    if args.seeds is None and (
+        args.smoke
+        or args.force
+        or args.result_root is not None
+        or args.plots
+        or args.determinism != "seeded"
+    ):
+        parser.error("--smoke, --force, --result-root, --plots and --determinism require --seeds")
     if args.seeds is not None and any(int(seed) < 0 for seed in args.seeds):
         parser.error("--seeds values must be non-negative integers")
     return args
@@ -292,6 +319,8 @@ def _seeded_env(
     run_root: Path,
     result_root: Path,
     smoke: bool,
+    determinism: str,
+    plots: bool,
 ) -> dict[str, str]:
     names = MODEL_ENV[model]
     env = {
@@ -300,16 +329,18 @@ def _seeded_env(
         "PYTHONHASHSEED": str(seed),
         "PYTHONDONTWRITEBYTECODE": "1",
         "PYTHONUNBUFFERED": "1",
-        "CUBLAS_WORKSPACE_CONFIG": ":4096:8",
     }
+    if determinism == "strict":
+        env["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
     if model == "TCNGATRE":
         graph_root = result_root / "_shared" / "tcngatre_graph" / dataset
         env["UAV_TCNGATRE_GRAPH_DIR"] = str(graph_root)
+    plot_value = "1" if plots and not smoke else "0"
+    env[names["plot"]] = plot_value
+    if "plot_compare" in names:
+        env[names["plot_compare"]] = plot_value
     if smoke:
         env[names["epochs"]] = "1"
-        env[names["plot"]] = "0"
-        if "plot_compare" in names:
-            env[names["plot_compare"]] = "0"
         if model == "TCNGATRE":
             env["UAV_TCNGATRE_SAMPLE_STRIDE"] = "64"
     return env
@@ -339,7 +370,16 @@ def build_job_specs(args) -> tuple[list[JobSpec], Path]:
                 env_overrides = (
                     {}
                     if run_root is None or seed is None
-                    else _seeded_env(model, dataset, seed, run_root, result_root, bool(args.smoke))
+                    else _seeded_env(
+                        model,
+                        dataset,
+                        seed,
+                        run_root,
+                        result_root,
+                        bool(args.smoke),
+                        str(args.determinism),
+                        bool(args.plots),
+                    )
                 )
                 for stage in stages:
                     script_name = script_map.get(stage)
@@ -356,6 +396,8 @@ def build_job_specs(args) -> tuple[list[JobSpec], Path]:
                             str(DETERMINISTIC_ENTRYPOINT),
                             "--seed",
                             str(seed),
+                            "--determinism",
+                            str(args.determinism),
                             "--script",
                             str(workdir / script_name),
                             "--",
@@ -379,6 +421,8 @@ def build_job_specs(args) -> tuple[list[JobSpec], Path]:
                             env_overrides=dict(env_overrides),
                             stage_marker=stage_marker,
                             smoke=bool(args.smoke),
+                            determinism=str(args.determinism),
+                            plots=bool(args.plots),
                         )
                     )
     return jobs, batch_root
@@ -551,6 +595,8 @@ def _run_rows(jobs: list[JobSpec]) -> list[dict]:
                 "model": job.model,
                 "seed": int(job.seed),
                 "smoke": bool(job.smoke),
+                "determinism": job.determinism,
+                "plots": bool(job.plots),
                 "run_root": str(job.run_root),
                 "stages": ",".join(MODEL_SCRIPTS[job.model]),
             }
@@ -579,10 +625,6 @@ def _write_provenance(run_rows: list[dict], jobs: list[JobSpec], force: bool) ->
         "platform": platform.platform(),
         "data_split_policy": "fixed dataset manifest; independent of model seed",
         "data_split_seed_protocol": 64,
-        "deterministic_policy": (
-            "Python/NumPy/PyTorch/CUDA seeds; deterministic cuDNN; "
-            "torch deterministic algorithms in warn-only mode"
-        ),
     }
     for row in run_rows:
         run_jobs = grouped[row["run_id"]]
@@ -598,6 +640,11 @@ def _write_provenance(run_rows: list[dict], jobs: list[JobSpec], force: bool) ->
             "env_overrides": first.env_overrides,
             "commands": {job.stage: job.command for job in run_jobs},
             "stage_signatures": {job.stage: job.signature for job in run_jobs},
+            "randomness_policy": (
+                "fixed Python/NumPy/PyTorch/CUDA seeds; optimized CUDA kernels allowed"
+                if row["determinism"] == "seeded"
+                else "fixed seeds; deterministic cuDNN and PyTorch algorithms requested in warn-only mode"
+            ),
             "tcngatre_seed_compatibility_note": (
                 "UAV_TCNGATRE_SPLIT_SEED controls model randomness; flight splits are fixed by the manifest."
                 if row["model"] == "TCNGATRE" else None
