@@ -7,7 +7,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
 
-from .paths import LEGACY_SNAPSHOT_PATH, PACKAGE_ROOT, REPO_ROOT, RESULTS_ROOT
+from .paths import (
+    APPROVED_LEGACY_CHANGES_PATH,
+    LEGACY_SNAPSHOT_PATH,
+    PACKAGE_ROOT,
+    REPO_ROOT,
+    RESULTS_ROOT,
+)
 
 
 class LegacyIntegrityError(RuntimeError):
@@ -51,6 +57,24 @@ def current_hashes(paths: Iterable[Path] | None = None) -> dict[str, str]:
     }
 
 
+def load_approved_changes(path: Path = APPROVED_LEGACY_CHANGES_PATH) -> dict[str, dict]:
+    if not path.exists():
+        return {}
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    rows = payload.get("changes", [])
+    approved: dict[str, dict] = {}
+    for row in rows:
+        rel = str(row.get("path", "")).strip().replace("\\", "/")
+        old_hash = str(row.get("old_sha256", "")).strip().lower()
+        new_hash = str(row.get("new_sha256", "")).strip().lower()
+        if not rel or len(old_hash) != 64 or len(new_hash) != 64:
+            raise LegacyIntegrityError(f"Invalid approved legacy change entry: {row}")
+        if rel in approved:
+            raise LegacyIntegrityError(f"Duplicate approved legacy change: {rel}")
+        approved[rel] = {**row, "path": rel, "old_sha256": old_hash, "new_sha256": new_hash}
+    return approved
+
+
 def create_snapshot(path: Path = LEGACY_SNAPSHOT_PATH) -> dict:
     hashes = current_hashes()
     status = _git(["status", "--short"]).splitlines()
@@ -75,21 +99,37 @@ def verify_snapshot(path: Path = LEGACY_SNAPSHOT_PATH) -> dict:
         raise LegacyIntegrityError(f"Legacy snapshot is missing: {path}")
     snapshot = json.loads(path.read_text(encoding="utf-8"))
     expected: dict[str, str] = snapshot.get("files", {})
+    approvals = load_approved_changes()
     missing: list[str] = []
     changed: list[str] = []
+    approved_changes: list[dict] = []
     for rel, expected_hash in expected.items():
         file_path = REPO_ROOT / rel
         if not file_path.is_file():
             missing.append(rel)
-        elif sha256_file(file_path) != expected_hash:
+            continue
+        current_hash = sha256_file(file_path)
+        if current_hash == expected_hash:
+            continue
+        approval = approvals.get(rel)
+        if (
+            approval is not None
+            and approval["old_sha256"] == str(expected_hash).lower()
+            and approval["new_sha256"] == current_hash.lower()
+        ):
+            approved_changes.append(approval)
+        else:
             changed.append(rel)
+    unknown_approvals = sorted(set(approvals).difference(expected))
     current_tracked = set(current_hashes())
     unexpected = sorted(current_tracked.difference(expected))
     result = {
-        "ok": not missing and not changed and not unexpected,
+        "ok": not missing and not changed and not unexpected and not unknown_approvals,
         "checked": len(expected),
         "missing": missing,
         "changed": changed,
+        "approved_changes": approved_changes,
+        "unknown_approvals": unknown_approvals,
         "unexpected_tracked_legacy": unexpected,
     }
     if not result["ok"]:

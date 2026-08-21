@@ -1,17 +1,27 @@
 from __future__ import annotations
 
 import argparse
+import csv
+import hashlib
 import json
+import locale
 import os
+import platform
 import subprocess
 import sys
 import time
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 
 ROOT = Path(__file__).resolve().parent
+REVISION_ROOT = ROOT / "revision_experiments"
+DEFAULT_RESULT_ROOT = ROOT / "revision_results" / "protocol_v1" / "main_comparison"
+DEFAULT_SMOKE_RESULT_ROOT = ROOT / "revision_results" / "protocol_v1" / "main_comparison_smoke"
+DETERMINISTIC_ENTRYPOINT = REVISION_ROOT / "main_comparison" / "deterministic_entrypoint.py"
+
 MODEL_ORDER = [
     "USAD",
     "Recurrent_AE",
@@ -24,10 +34,7 @@ DATASET_ORDER = ["alfa", "simulate", "gpsdata"]
 STAGE_ORDER = ["train", "infer", "eval"]
 
 MODEL_SCRIPTS: dict[str, dict[str, str]] = {
-    "USAD": {
-        "train": "train_usad.py",
-        "infer": "infer_usad.py",
-    },
+    "USAD": {"train": "train_usad.py", "infer": "infer_usad.py"},
     "Recurrent_AE": {
         "train": "train_recurrent_ae.py",
         "infer": "infer_recurrent_ae.py",
@@ -55,6 +62,61 @@ MODEL_SCRIPTS: dict[str, dict[str, str]] = {
     },
 }
 
+MODEL_ENV: dict[str, dict[str, str]] = {
+    "USAD": {
+        "seed": "UAV_USAD_SEED",
+        "run_root": "UAV_USAD_RUN_ROOT",
+        "epochs": "UAV_USAD_NUM_EPOCHS",
+        "plot": "UAV_USAD_PLOT_SCORES",
+        "plot_compare": "UAV_USAD_PLOT_COMPARE_TIMELINES",
+    },
+    "Recurrent_AE": {
+        "seed": "UAV_RAE_SEED",
+        "run_root": "UAV_RAE_RUN_ROOT",
+        "epochs": "UAV_RAE_NUM_EPOCHS",
+        "plot": "UAV_RAE_PLOT_SCORES",
+        "plot_compare": "UAV_RAE_PLOT_COMPARE_TIMELINES",
+    },
+    "TranAD": {
+        "seed": "UAV_TRANAD_SEED",
+        "run_root": "UAV_TRANAD_RUN_ROOT",
+        "epochs": "UAV_TRANAD_NUM_EPOCHS",
+        "plot": "UAV_TRANAD_PLOT_SCORES",
+        "plot_compare": "UAV_TRANAD_PLOT_COMPARE_TIMELINES",
+    },
+    "OmniAnomaly": {
+        "seed": "UAV_OA_SEED",
+        "run_root": "UAV_OA_RUN_ROOT",
+        "epochs": "UAV_OA_NUM_EPOCHS",
+        "plot": "UAV_OA_PLOT_SCORES",
+        "plot_compare": "UAV_OA_PLOT_COMPARE_TIMELINES",
+    },
+    "BeatGAN": {
+        "seed": "UAV_BEATGAN_SEED",
+        "run_root": "UAV_BEATGAN_RUN_ROOT",
+        "epochs": "UAV_BEATGAN_NUM_EPOCHS",
+        "plot": "UAV_BEATGAN_PLOT_SCORES",
+        "plot_compare": "UAV_BEATGAN_PLOT_COMPARE_TIMELINES",
+    },
+    "TCNGATRE": {
+        # The legacy name is retained for compatibility. Dataset manifests fix
+        # the train/validation flights, so this value controls model randomness.
+        "seed": "UAV_TCNGATRE_SPLIT_SEED",
+        "run_root": "UAV_TCNGATRE_RUN_ROOT",
+        "epochs": "UAV_TCNGATRE_NUM_EPOCHS",
+        "plot": "UAV_TCNGATRE_PLOT_SCORES",
+    },
+}
+
+INFER_OUTPUT_NAMES = {
+    "USAD": "infer_usad_global_threshold",
+    "Recurrent_AE": "infer_recurrent_ae_failure",
+    "TranAD": "infer_tranad_failure",
+    "OmniAnomaly": "infer_future_window_failure",
+    "BeatGAN": "infer_beatgan_failure",
+    "TCNGATRE": "infer_tcngatre_failure",
+}
+
 
 @dataclass
 class JobSpec:
@@ -66,11 +128,43 @@ class JobSpec:
     workdir: Path
     command: list[str]
     log_path: Path
+    seed: int | None
+    run_root: Path | None
+    env_overrides: dict[str, str]
+    stage_marker: Path | None
+    smoke: bool
+
+    @property
+    def run_id(self) -> str:
+        if self.seed is None:
+            return f"{self.dataset}/{self.model}/legacy"
+        return f"{self.dataset}/{self.model}/seed_{self.seed}"
+
+    @property
+    def signature(self) -> str:
+        semantic_env = {
+            key: value for key, value in self.env_overrides.items()
+            if key != "PYTHONUNBUFFERED"
+        }
+        payload = {
+            "model": self.model,
+            "dataset": self.dataset,
+            "stage": self.stage,
+            "seed": self.seed,
+            "smoke": self.smoke,
+            "command": self.command,
+            "env_overrides": semantic_env,
+        }
+        raw = json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+        return hashlib.sha256(raw).hexdigest()
 
     def to_dict(self) -> dict:
         payload = asdict(self)
-        payload["workdir"] = str(self.workdir)
-        payload["log_path"] = str(self.log_path)
+        for key in ("workdir", "log_path", "run_root", "stage_marker"):
+            value = payload[key]
+            payload[key] = None if value is None else str(value)
+        payload["run_id"] = self.run_id
+        payload["signature"] = self.signature
         return payload
 
 
@@ -105,6 +199,34 @@ def parse_args(argv: list[str] | None = None):
         help="Subset of stages to run. Unsupported stages for a model are skipped automatically.",
     )
     parser.add_argument(
+        "--seeds",
+        nargs="+",
+        type=int,
+        default=None,
+        help=(
+            "Model seeds for isolated repeated runs, for example --seeds 0 1 2 3 4. "
+            "If omitted, the original single-run behavior is preserved."
+        ),
+    )
+    parser.add_argument(
+        "--result-root",
+        default=None,
+        help=(
+            "Output root for seeded runs. Defaults to "
+            "revision_results/protocol_v1/main_comparison (or main_comparison_smoke)."
+        ),
+    )
+    parser.add_argument(
+        "--smoke",
+        action="store_true",
+        help="Run one training epoch and disable score plotting. Requires --seeds.",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Rerun seeded stages even when matching completion markers already exist.",
+    )
+    parser.add_argument(
         "--keep-going",
         action="store_true",
         help="Continue with later jobs even if one job fails.",
@@ -117,14 +239,22 @@ def parse_args(argv: list[str] | None = None):
     parser.add_argument(
         "--log-root",
         default=str(ROOT / "batch_logs"),
-        help="Directory used to store stdout/stderr logs and batch summary.",
+        help=(
+            "Directory used for legacy batch logs. In seeded mode, per-stage logs live "
+            "inside each run and this directory only stores the batch summary."
+        ),
     )
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.seeds is None and (args.smoke or args.force or args.result_root is not None):
+        parser.error("--smoke, --force and --result-root require --seeds")
+    if args.seeds is not None and any(int(seed) < 0 for seed in args.seeds):
+        parser.error("--seeds values must be non-negative integers")
+    return args
 
 
-def normalize_ordered(unique_values: list[str], canonical_order: list[str]) -> list[str]:
-    seen: set[str] = set()
-    ordered: list[str] = []
+def normalize_ordered(unique_values: list[Any], canonical_order: list[Any]) -> list[Any]:
+    seen: set[Any] = set()
+    ordered: list[Any] = []
     for item in canonical_order:
         if item in unique_values and item not in seen:
             ordered.append(item)
@@ -136,137 +266,486 @@ def normalize_ordered(unique_values: list[str], canonical_order: list[str]) -> l
     return ordered
 
 
+def _unique_seeds(values: list[int]) -> list[int]:
+    seen: set[int] = set()
+    result: list[int] = []
+    for value in values:
+        seed = int(value)
+        if seed not in seen:
+            result.append(seed)
+            seen.add(seed)
+    return result
+
+
+def resolve_result_root(args) -> Path | None:
+    if args.seeds is None:
+        return None
+    if args.result_root:
+        return Path(args.result_root).expanduser().resolve()
+    return (DEFAULT_SMOKE_RESULT_ROOT if args.smoke else DEFAULT_RESULT_ROOT).resolve()
+
+
+def _seeded_env(
+    model: str,
+    dataset: str,
+    seed: int,
+    run_root: Path,
+    result_root: Path,
+    smoke: bool,
+) -> dict[str, str]:
+    names = MODEL_ENV[model]
+    env = {
+        names["seed"]: str(seed),
+        names["run_root"]: str(run_root),
+        "PYTHONHASHSEED": str(seed),
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "PYTHONUNBUFFERED": "1",
+        "CUBLAS_WORKSPACE_CONFIG": ":4096:8",
+    }
+    if model == "TCNGATRE":
+        graph_root = result_root / "_shared" / "tcngatre_graph" / dataset
+        env["UAV_TCNGATRE_GRAPH_DIR"] = str(graph_root)
+    if smoke:
+        env[names["epochs"]] = "1"
+        env[names["plot"]] = "0"
+        if "plot_compare" in names:
+            env[names["plot_compare"]] = "0"
+        if model == "TCNGATRE":
+            env["UAV_TCNGATRE_SAMPLE_STRIDE"] = "64"
+    return env
+
+
 def build_job_specs(args) -> tuple[list[JobSpec], Path]:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    batch_root = Path(args.log_root) / f"batch_{timestamp}"
+    result_root = resolve_result_root(args)
+    if result_root is None:
+        batch_root = Path(args.log_root) / f"batch_{timestamp}"
+    else:
+        batch_root = result_root / "_batches" / f"batch_{timestamp}"
+
     jobs: list[JobSpec] = []
     job_index = 0
-
     models = normalize_ordered(list(args.models), MODEL_ORDER)
     datasets = normalize_ordered(list(args.datasets), DATASET_ORDER)
     stages = normalize_ordered(list(args.stages), STAGE_ORDER)
+    seeds: list[int | None] = [None] if args.seeds is None else _unique_seeds(list(args.seeds))
 
     for dataset in datasets:
         for model in models:
             workdir = ROOT / model
             script_map = MODEL_SCRIPTS[model]
-            for stage in stages:
-                script_name = script_map.get(stage)
-                if script_name is None:
-                    continue
-                job_index += 1
-                log_path = batch_root / f"{job_index:02d}__{model}__{dataset}__{stage}.log"
-                jobs.append(
-                    JobSpec(
-                        index=job_index,
-                        model=model,
-                        dataset=dataset,
-                        stage=stage,
-                        script_name=script_name,
-                        workdir=workdir,
-                        command=[str(args.python), script_name, "--dataset", dataset],
-                        log_path=log_path,
-                    )
+            for seed in seeds:
+                run_root = None if result_root is None else result_root / dataset / model / f"seed_{seed}"
+                env_overrides = (
+                    {}
+                    if run_root is None or seed is None
+                    else _seeded_env(model, dataset, seed, run_root, result_root, bool(args.smoke))
                 )
+                for stage in stages:
+                    script_name = script_map.get(stage)
+                    if script_name is None:
+                        continue
+                    job_index += 1
+                    if run_root is None or seed is None:
+                        command = [str(args.python), script_name, "--dataset", dataset]
+                        log_path = batch_root / f"{job_index:02d}__{model}__{dataset}__{stage}.log"
+                        stage_marker = None
+                    else:
+                        command = [
+                            str(args.python),
+                            str(DETERMINISTIC_ENTRYPOINT),
+                            "--seed",
+                            str(seed),
+                            "--script",
+                            str(workdir / script_name),
+                            "--",
+                            "--dataset",
+                            dataset,
+                        ]
+                        log_path = run_root / "logs" / f"{stage}.log"
+                        stage_marker = run_root / "status" / f"{stage}.json"
+                    jobs.append(
+                        JobSpec(
+                            index=job_index,
+                            model=model,
+                            dataset=dataset,
+                            stage=stage,
+                            script_name=script_name,
+                            workdir=workdir,
+                            command=command,
+                            log_path=log_path,
+                            seed=seed,
+                            run_root=run_root,
+                            env_overrides=dict(env_overrides),
+                            stage_marker=stage_marker,
+                            smoke=bool(args.smoke),
+                        )
+                    )
     return jobs, batch_root
 
 
-def stream_process(job: JobSpec) -> tuple[int, float]:
-    job.log_path.parent.mkdir(parents=True, exist_ok=True)
-    start_time = time.time()
-    print(
-        f"\n[{job.index:02d}] {job.model} | {job.dataset} | {job.stage}\n"
-        f"cwd={job.workdir}\n"
-        f"cmd={' '.join(job.command)}\n"
-        f"log={job.log_path}"
+def _write_json(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, default=str),
+        encoding="utf-8",
     )
+
+
+def _git_value(*args: str) -> str:
+    completed = subprocess.run(
+        ["git", *args], cwd=str(ROOT), stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL, text=True, encoding="utf-8", errors="replace", check=False,
+    )
+    return completed.stdout.strip() if completed.returncode == 0 else "unknown"
+
+
+def _artifact_paths(job: JobSpec) -> list[Path]:
+    if job.run_root is None:
+        return []
+    if job.stage == "train":
+        return [
+            job.run_root / "best.pt",
+            job.run_root / "last.pt",
+            job.run_root / "config.json",
+            job.run_root / "val_normal_scores.csv",
+        ]
+    infer_root = job.run_root / INFER_OUTPUT_NAMES[job.model]
+    if job.stage == "infer":
+        paths = [infer_root / "sequence_scores.csv"]
+        if job.model == "USAD":
+            paths.append(infer_root / "score_threshold_analysis" / "summary_metrics.csv")
+        return paths
+    if job.stage == "eval":
+        return [infer_root / "score_threshold_analysis" / "summary_metrics.csv"]
+    return []
+
+
+def _missing_artifacts(job: JobSpec) -> list[str]:
+    return [str(path) for path in _artifact_paths(job) if not path.is_file()]
+
+
+def _stage_is_complete(job: JobSpec) -> bool:
+    if job.stage_marker is None or not job.stage_marker.is_file():
+        return False
+    try:
+        payload = json.loads(job.stage_marker.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return False
+    return (
+        payload.get("status") == "ok"
+        and payload.get("signature") == job.signature
+        and not _missing_artifacts(job)
+    )
+
+
+def _write_stage_marker(
+    job: JobSpec,
+    status: str,
+    return_code: int,
+    elapsed_sec: float,
+    missing_artifacts: list[str] | None = None,
+) -> None:
+    if job.stage_marker is None:
+        return
+    _write_json(
+        job.stage_marker,
+        {
+            "status": status,
+            "return_code": int(return_code),
+            "elapsed_sec": float(elapsed_sec),
+            "finished_at_utc": datetime.now(timezone.utc).isoformat(),
+            "signature": job.signature,
+            "run_id": job.run_id,
+            "stage": job.stage,
+            "command": job.command,
+            "env_overrides": job.env_overrides,
+            "missing_artifacts": list(missing_artifacts or []),
+            "log_path": str(job.log_path),
+        },
+    )
+
+
+def _write_console(value: str) -> None:
+    try:
+        sys.stdout.write(value)
+    except UnicodeEncodeError:
+        encoding = sys.stdout.encoding or locale.getpreferredencoding(False) or "utf-8"
+        safe_value = value.encode(encoding, errors="replace").decode(encoding, errors="replace")
+        sys.stdout.write(safe_value)
+
+
+def stream_process(job: JobSpec, force: bool = False) -> tuple[int, float, str]:
+    if job.seed is not None and not force and _stage_is_complete(job):
+        print(f"[SKIP] {job.run_id} | {job.stage} | matching completion marker")
+        return 0, 0.0, "skipped"
+
+    job.log_path.parent.mkdir(parents=True, exist_ok=True)
+    if job.run_root is not None:
+        job.run_root.mkdir(parents=True, exist_ok=True)
+    start_time = time.time()
+    seed_text = "" if job.seed is None else f" | seed={job.seed}"
+    print(
+        f"\n[{job.index:03d}] {job.model} | {job.dataset} | {job.stage}{seed_text}\n"
+        f"cwd={job.workdir}\ncmd={' '.join(job.command)}\nlog={job.log_path}"
+    )
+    env = os.environ.copy()
+    env.update(job.env_overrides)
+    missing: list[str] = []
     with job.log_path.open("w", encoding="utf-8", newline="") as log_file:
-        log_file.write(f"cwd={job.workdir}\n")
-        log_file.write(f"cmd={' '.join(job.command)}\n\n")
+        log_file.write(f"cwd={job.workdir}\ncmd={' '.join(job.command)}\n")
+        if job.env_overrides:
+            log_file.write(
+                "env_overrides=" + json.dumps(job.env_overrides, ensure_ascii=False, sort_keys=True) + "\n"
+            )
+        log_file.write("\n")
         process = subprocess.Popen(
-            job.command,
-            cwd=str(job.workdir),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            bufsize=1,
-            env=os.environ.copy(),
+            job.command, cwd=str(job.workdir), stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT, text=True,
+            encoding=locale.getpreferredencoding(False) or "utf-8", errors="replace",
+            bufsize=1, env=env,
         )
         assert process.stdout is not None
         prefix = f"[{job.model}/{job.dataset}/{job.stage}] "
         for line in process.stdout:
-            sys.stdout.write(prefix + line)
+            _write_console(prefix + line)
             log_file.write(line)
-        return_code = process.wait()
+        return_code = int(process.wait())
+        missing = _missing_artifacts(job) if return_code == 0 else []
+        if missing:
+            return_code = 3
+            message = "Expected artifacts missing after a successful process:\n" + "\n".join(missing)
+            _write_console(prefix + message + "\n")
+            log_file.write("\n" + message + "\n")
+
     elapsed_sec = time.time() - start_time
+    status = "ok" if return_code == 0 else "failed"
+    _write_stage_marker(job, status, return_code, elapsed_sec, missing_artifacts=missing)
+    if return_code != 0 and job.run_root is not None:
+        _write_json(
+            job.run_root / "FAILED.json",
+            {
+                "status": "failed", "run_id": job.run_id, "failed_stage": job.stage,
+                "return_code": return_code, "log_path": str(job.log_path),
+                "finished_at_utc": datetime.now(timezone.utc).isoformat(),
+            },
+        )
     print(
-        f"[DONE] {job.model} | {job.dataset} | {job.stage} | "
+        f"[DONE] {job.model} | {job.dataset} | {job.stage}{seed_text} | "
         f"return_code={return_code} | elapsed_sec={elapsed_sec:.1f}"
     )
-    return return_code, elapsed_sec
+    return return_code, elapsed_sec, status
+
+
+def _run_rows(jobs: list[JobSpec]) -> list[dict]:
+    rows: list[dict] = []
+    seen: set[str] = set()
+    for job in jobs:
+        if job.seed is None or job.run_root is None or job.run_id in seen:
+            continue
+        seen.add(job.run_id)
+        rows.append(
+            {
+                "run_id": job.run_id,
+                "dataset": job.dataset,
+                "model": job.model,
+                "seed": int(job.seed),
+                "smoke": bool(job.smoke),
+                "run_root": str(job.run_root),
+                "stages": ",".join(MODEL_SCRIPTS[job.model]),
+            }
+        )
+    return rows
+
+
+def _write_csv(path: Path, rows: list[dict], fieldnames: list[str] | None = None) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    columns = fieldnames or (list(rows[0]) if rows else ["run_id"])
+    with path.open("w", newline="", encoding="utf-8-sig") as handle:
+        writer = csv.DictWriter(handle, fieldnames=columns)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def _write_provenance(run_rows: list[dict], jobs: list[JobSpec], force: bool) -> None:
+    grouped: dict[str, list[JobSpec]] = {}
+    for job in jobs:
+        grouped.setdefault(job.run_id, []).append(job)
+    common = {
+        "git_head": _git_value("rev-parse", "HEAD"),
+        "git_branch": _git_value("branch", "--show-current"),
+        "python": sys.version,
+        "python_executable": sys.executable,
+        "platform": platform.platform(),
+        "data_split_policy": "fixed dataset manifest; independent of model seed",
+        "data_split_seed_protocol": 64,
+        "deterministic_policy": (
+            "Python/NumPy/PyTorch/CUDA seeds; deterministic cuDNN; "
+            "torch deterministic algorithms in warn-only mode"
+        ),
+    }
+    for row in run_rows:
+        run_jobs = grouped[row["run_id"]]
+        run_root = Path(row["run_root"])
+        provenance_path = run_root / "provenance.json"
+        if provenance_path.exists() and not force:
+            continue
+        first = run_jobs[0]
+        payload = {
+            **common,
+            **row,
+            "created_at_utc": datetime.now(timezone.utc).isoformat(),
+            "env_overrides": first.env_overrides,
+            "commands": {job.stage: job.command for job in run_jobs},
+            "stage_signatures": {job.stage: job.signature for job in run_jobs},
+            "tcngatre_seed_compatibility_note": (
+                "UAV_TCNGATRE_SPLIT_SEED controls model randomness; flight splits are fixed by the manifest."
+                if row["model"] == "TCNGATRE" else None
+            ),
+        }
+        _write_json(provenance_path, payload)
+
+
+def _prepare_seeded_outputs(jobs: list[JobSpec], batch_root: Path, force: bool) -> list[dict]:
+    run_rows = _run_rows(jobs)
+    if not run_rows:
+        return []
+    result_root = Path(run_rows[0]["run_root"]).parents[2]
+    if force:
+        for row in run_rows:
+            run_root = Path(row["run_root"])
+            for name in ("DONE.json", "FAILED.json", "PARTIAL.json"):
+                marker = run_root / name
+                if marker.is_file():
+                    marker.unlink()
+    _write_csv(result_root / "run_manifest.csv", run_rows)
+    _write_csv(batch_root / "run_manifest.csv", run_rows)
+    _write_provenance(run_rows, jobs, force=force)
+    return run_rows
+
+
+def _finalize_seeded_runs(jobs: list[JobSpec]) -> None:
+    grouped: dict[str, list[JobSpec]] = {}
+    for job in jobs:
+        if job.seed is not None and job.run_root is not None:
+            grouped.setdefault(job.run_id, []).append(job)
+    for run_id, selected_jobs in grouped.items():
+        template = selected_jobs[0]
+        run_root = template.run_root
+        assert run_root is not None
+        status_by_stage: dict[str, str] = {}
+        all_complete = True
+        for stage in MODEL_SCRIPTS[template.model]:
+            matching = [job for job in selected_jobs if job.stage == stage]
+            if not matching:
+                status_by_stage[stage] = "not_requested"
+                all_complete = False
+                continue
+            complete = _stage_is_complete(matching[0])
+            status_by_stage[stage] = "ok" if complete else "missing_or_failed"
+            all_complete = all_complete and complete
+        payload = {
+            "status": "complete" if all_complete else "partial",
+            "run_id": run_id, "dataset": template.dataset, "model": template.model,
+            "model_seed": template.seed, "data_split_policy": "fixed dataset manifest",
+            "stages": status_by_stage,
+            "finished_at_utc": datetime.now(timezone.utc).isoformat(),
+        }
+        if all_complete:
+            _write_json(run_root / "DONE.json", payload)
+            for name in ("FAILED.json", "PARTIAL.json"):
+                path = run_root / name
+                if path.is_file():
+                    path.unlink()
+        elif not (run_root / "FAILED.json").exists():
+            _write_json(run_root / "PARTIAL.json", payload)
+
+
+def _summarize_seeded(result_root: Path, run_rows: list[dict]) -> dict:
+    from revision_experiments.analysis.main_comparison import summarize_main_comparison
+
+    return summarize_main_comparison(result_root=result_root, expected_runs=run_rows)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     jobs, batch_root = build_job_specs(args)
-
-    if len(jobs) <= 0:
+    if not jobs:
         print("No runnable jobs matched the requested model/dataset/stage selection.")
         return 0
 
-    summary_records: list[dict] = []
+    run_rows = _run_rows(jobs)
     print(f"[BATCH] root={ROOT}")
     print(f"[BATCH] python={args.python}")
     print(f"[BATCH] log_root={batch_root}")
-    print(f"[BATCH] jobs={len(jobs)}")
+    if args.seeds is not None:
+        print(f"[BATCH] isolated_runs={len(run_rows)}")
+        print(f"[BATCH] seeds={_unique_seeds(list(args.seeds))}")
+        print(f"[BATCH] result_root={resolve_result_root(args)}")
+    print(f"[BATCH] stage_jobs={len(jobs)}")
     for job in jobs:
-        print(f"  - [{job.index:02d}] {job.model} | {job.dataset} | {job.stage}")
-
+        seed_text = "" if job.seed is None else f" | seed={job.seed}"
+        print(f"  - [{job.index:03d}] {job.model} | {job.dataset} | {job.stage}{seed_text}")
     if args.dry_run:
         return 0
 
-    batch_root.mkdir(parents=True, exist_ok=True)
-    (batch_root / "planned_jobs.json").write_text(
-        json.dumps([job.to_dict() for job in jobs], ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    if args.seeds is not None:
+        from revision_experiments.core.integrity import verify_snapshot
 
+        integrity = verify_snapshot()
+        print(
+            f"[INTEGRITY] ok={integrity['ok']} checked={integrity['checked']} "
+            f"approved_changes={len(integrity.get('approved_changes', []))}"
+        )
+
+    batch_root.mkdir(parents=True, exist_ok=True)
+    _write_json(batch_root / "planned_jobs.json", [job.to_dict() for job in jobs])
+    if args.seeds is not None:
+        run_rows = _prepare_seeded_outputs(jobs, batch_root, force=bool(args.force))
+
+    summary_records: list[dict] = []
     failed = False
     for job in jobs:
-        return_code, elapsed_sec = stream_process(job)
+        return_code, elapsed_sec, execution_status = stream_process(job, force=bool(args.force))
         record = job.to_dict()
         record["elapsed_sec"] = float(elapsed_sec)
         record["return_code"] = int(return_code)
-        record["status"] = "ok" if return_code == 0 else "failed"
+        record["status"] = execution_status
         summary_records.append(record)
-        (batch_root / "summary.json").write_text(
-            json.dumps(summary_records, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        _write_json(batch_root / "summary.json", summary_records)
         if return_code != 0:
             failed = True
-            print(f"[FAIL] stopping on first failure: {job.model} | {job.dataset} | {job.stage}")
+            print(f"[FAIL] {job.model} | {job.dataset} | {job.stage} | seed={job.seed}")
             if not args.keep_going:
                 break
 
+    if args.seeds is not None:
+        _finalize_seeded_runs(jobs)
+        result_root = resolve_result_root(args)
+        assert result_root is not None
+        summary_payload = _summarize_seeded(result_root, run_rows)
+        print(
+            f"[SUMMARY] complete_runs={summary_payload['complete_runs']} "
+            f"expected_runs={summary_payload['expected_runs']} "
+            f"missing_runs={summary_payload['missing_runs']}"
+        )
+        integrity = verify_snapshot()
+        print(
+            f"[INTEGRITY] final_ok={integrity['ok']} "
+            f"approved_changes={len(integrity.get('approved_changes', []))}"
+        )
+
     status_payload = {
-        "root": str(ROOT),
-        "python": str(args.python),
-        "jobs_total": int(len(jobs)),
-        "jobs_finished": int(len(summary_records)),
+        "root": str(ROOT), "python": str(args.python),
+        "runs_total": int(len(run_rows)) if args.seeds is not None else None,
+        "jobs_total": int(len(jobs)), "jobs_finished": int(len(summary_records)),
         "jobs_failed": int(sum(1 for row in summary_records if int(row["return_code"]) != 0)),
-        "summary_path": str(batch_root / "summary.json"),
-        "batch_root": str(batch_root),
+        "summary_path": str(batch_root / "summary.json"), "batch_root": str(batch_root),
     }
-    (batch_root / "batch_status.json").write_text(
-        json.dumps(status_payload, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    _write_json(batch_root / "batch_status.json", status_payload)
     print(f"[BATCH] summary={batch_root / 'summary.json'}")
     print(f"[BATCH] status={batch_root / 'batch_status.json'}")
-    return 1 if failed and not args.keep_going else 0
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "changes": [
+    {
+      "path": "run_all_models_all_datasets.py",
+      "old_sha256": "eb55858556e73872d5dab6892a2e412b13b13e2cfd452e9d7a6a711fc855baf8",
+      "new_sha256": "fb78df7e649643232a4318d81851da3ceee507d05e2378a481862dd1f053e243",
+      "reason": "Add audited multi-seed orchestration, isolated outputs, deterministic launching, resume markers, and result collection for the six-model comparison.",
+      "approved_at": "2026-08-21"
+    }
+  ]
+}

@@ -10,6 +10,7 @@ RESULTS_ROOT = REPO_ROOT / "revision_results"
 PROTOCOL_PATH = PACKAGE_ROOT / "configs" / "protocol_v1.json"
 MANIFEST_DIR = PACKAGE_ROOT / "manifests"
 LEGACY_SNAPSHOT_PATH = MANIFEST_DIR / "legacy_snapshot.json"
+APPROVED_LEGACY_CHANGES_PATH = MANIFEST_DIR / "approved_legacy_changes.json"
 BASELINE_SOURCE_PATH = PACKAGE_ROOT / "baselines" / "baseline_sources.json"
 EXTERNAL_ROOT = PACKAGE_ROOT / "_external"
 

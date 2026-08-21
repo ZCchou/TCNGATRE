@@ -3,7 +3,9 @@
 This directory is an add-only experiment harness for the KNOSYS revision.  It
 imports the legacy TCNGATRE data/model helpers read-only, writes all generated
 files under `revision_results/`, and checks a SHA-256 snapshot of every tracked
-legacy file before and after a run.
+legacy file before and after a run. The only approved legacy change is the
+audited multi-seed extension to `run_all_models_all_datasets.py`; its exact old
+and new hashes are recorded in `manifests/approved_legacy_changes.json`.
 
 ## Commands
 
@@ -18,6 +20,23 @@ python revision_experiments/run_revision.py smoke --datasets all
 python revision_experiments/run_revision.py run --experiments ex01,ex02 --datasets all --seeds 0,1,2,3,4 --dry-run
 python revision_experiments/run_revision.py summarize --protocol protocol_v1
 ```
+
+## Six-model repeated runs
+
+The existing all-model runner keeps its original behavior when `--seeds` is
+omitted. Seeded mode isolates every model/dataset/seed run, supports stage-level
+resume, and writes only under `revision_results/protocol_v1/main_comparison/`.
+
+```powershell
+python run_all_models_all_datasets.py --seeds 0 1 2 3 4 --dry-run
+python run_all_models_all_datasets.py --datasets simulate --seeds 0 --smoke --keep-going
+python run_all_models_all_datasets.py --seeds 0 1 2 3 4 --keep-going
+```
+
+The primary comparison collector uses only the Micro result selected from the
+global `summary_metrics.csv` row with `threshold_method=spot` and
+`label_col=label_any`. Per-flight files remain native diagnostic artifacts but
+are not used in the five-seed statistical summary.
 
 CATCH and CAROTS are launched through the Python executables pinned in
 `envs/runtime_paths.json`.  Their adapters use official model/loss code at the
