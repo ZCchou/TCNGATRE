@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import DataLoader
+from tqdm.auto import tqdm
 
 from revision_experiments.analysis.robustness import corrupt_tensor
 from revision_experiments.models.variants import build_revision_model, transform_graph_prior
@@ -232,7 +233,15 @@ def execute_training_run(cfg: RevisionConfig, force: bool = False) -> dict:
                 start_epoch = int(checkpoint.get("epoch", 0))
                 best = float(checkpoint.get("best_val", math.inf))
 
-        for epoch in range(start_epoch, cfg.epochs):
+        epoch_progress = tqdm(
+            range(start_epoch, cfg.epochs),
+            total=cfg.epochs,
+            initial=start_epoch,
+            desc=f"{cfg.experiment_id}/{cfg.dataset}/{cfg.variant}/seed_{cfg.model_seed}",
+            unit="epoch",
+            dynamic_ncols=False,
+        )
+        for epoch in epoch_progress:
             train_metrics = _run_epoch(model, train_loader, a, m, legacy_cfg, device, optimizer)
             with torch.no_grad():
                 val_metrics = _run_epoch(model, val_loader, a, m, legacy_cfg, device, None)
@@ -243,6 +252,11 @@ def execute_training_run(cfg: RevisionConfig, force: bool = False) -> dict:
                 "train_cross_dim_loss": train_metrics["cross"],
             }
             history.append(record)
+            epoch_progress.set_postfix(
+                train_loss=f"{train_metrics['loss']:.6g}",
+                val_loss=f"{val_metrics['loss']:.6g}",
+                best_val=f"{min(best, val_metrics['loss']):.6g}",
+            )
             checkpoint = {
                 "epoch": epoch + 1,
                 "model": model.state_dict(),
