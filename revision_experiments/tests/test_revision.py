@@ -26,6 +26,7 @@ from revision_experiments.core.config import (
 )
 from revision_experiments.core.engine import data_protocol_payload
 from revision_experiments.core.engine import set_model_seed
+from revision_experiments.models.variants import build_revision_model
 from revision_experiments.scoring.aggregators import aggregate_channels
 from revision_experiments.scoring.local_anomaly import inject_local_anomaly
 
@@ -230,6 +231,40 @@ class RevisionTrainingParityTests(unittest.TestCase):
             torch.use_deterministic_algorithms(previous_algorithms)
             torch.backends.cudnn.deterministic = previous_deterministic
             torch.backends.cudnn.benchmark = previous_benchmark
+
+    def test_static_only_removes_dynamic_attention_parameters(self):
+        static_cfg = make_config("ex01", "simulate", "static_only", 0, smoke=True)
+        full_cfg = make_config("ex01", "simulate", "full", 0, smoke=True)
+        self.assertEqual(
+            static_cfg.variant_revision,
+            "static_graph_without_dynamic_attention_v2",
+        )
+        self.assertEqual(full_cfg.variant_revision, "")
+
+        device = torch.device("cpu")
+        static_model = build_revision_model(
+            static_cfg, static_cfg.to_legacy(), num_nodes=4, device=device
+        )
+        full_model = build_revision_model(
+            full_cfg, full_cfg.to_legacy(), num_nodes=4, device=device
+        )
+        static_names = {name for name, _ in static_model.named_parameters()}
+        self.assertFalse(
+            any("graph_corrections" in name and ".dyn." in name for name in static_names)
+        )
+        self.assertLess(
+            sum(parameter.numel() for parameter in static_model.parameters()),
+            sum(parameter.numel() for parameter in full_model.parameters()),
+        )
+
+        x = torch.randn(2, 16, 4, 1)
+        a = torch.rand(4, 4)
+        a.fill_diagonal_(0.0)
+        m = torch.ones(4, 4)
+        prediction, aux = static_model(x, a, m, short_patch=8)
+        self.assertEqual(tuple(prediction.shape), (2, 4, 4, 1))
+        self.assertEqual(aux["A_dyn"].numel(), 1)
+        torch.testing.assert_close(aux["A_fuse"], aux["A_static"])
 
 
 class BaselineCommonDataTests(unittest.TestCase):

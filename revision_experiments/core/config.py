@@ -117,6 +117,7 @@ class RevisionConfig:
     smoke: bool = False
     corruption_kind: str = "none"
     corruption_level: float = 0.0
+    variant_revision: str = ""
     output_root: str = str(RESULTS_ROOT)
 
     def __post_init__(self) -> None:
@@ -142,7 +143,12 @@ class RevisionConfig:
 
     @property
     def config_hash(self) -> str:
-        payload = json.dumps(asdict(self), sort_keys=True, ensure_ascii=False).encode("utf-8")
+        fields = asdict(self)
+        # Preserve hashes for every unchanged variant. A non-empty revision
+        # invalidates only the affected variant's stale DONE/checkpoint files.
+        if not fields.get("variant_revision"):
+            fields.pop("variant_revision", None)
+        payload = json.dumps(fields, sort_keys=True, ensure_ascii=False).encode("utf-8")
         return hashlib.sha256(payload).hexdigest()[:16]
 
     def to_dict(self) -> dict[str, Any]:
@@ -236,4 +242,5 @@ def make_config(
         smoke=bool(smoke),
         corruption_kind=corruption_kind,
         corruption_level=corruption_level,
+        variant_revision=str(spec.get("variant_revisions", {}).get(variant, "")),
     )

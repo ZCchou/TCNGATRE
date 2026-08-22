@@ -6,6 +6,9 @@
   "primary_label": "label_any",
   "primary_threshold": "spot",
   "ema_alpha": 0.25,
+  "variant_revisions": {
+    "static_only": "static_graph_without_dynamic_attention_v2"
+  },
   "experiments": {
     "ex01": [
       "full",

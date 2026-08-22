@@ -30,6 +30,10 @@ static-only, dynamic-only, learned scalar fusion, and a shuffled-MIC prior.
 This expands to 7 variants x 3 datasets x 5 seeds = 105 runs. Repeating the
 same run command resumes partial checkpoints and reuses a completed run only
 when both its resolved configuration hash and current data-protocol hash match.
+The `static_only` variant uses the MIC graph directly and no longer retains or
+executes the sample-adaptive Q/K attention branch. Its temporal backbone,
+graph-correction positions, and message-passing depth remain identical to Full,
+so the comparison isolates graph source rather than unrelated model width.
 Formal ALFA ablation runs use window stride 16 to reduce the 29-flight training
 window count; GPSData and Simulate retain stride 4. Formal GPSData ablation
 runs use batch size 32, while ALFA and Simulate retain batch size 128. Smoke

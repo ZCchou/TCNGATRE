@@ -32,7 +32,12 @@ class FlexibleGraphCorrection(MultiHopGraphCorrection):
         super().__init__(*args, **kwargs)
         self.fusion = str(fusion)
         d_model = int(self.msg_proj.in_features)
-        if self.fusion == "learned_scalar":
+        if self.fusion == "static":
+            # A true static-only ablation must not retain or execute the
+            # sample-adaptive Q/K attention branch. Assigning None also
+            # removes its parameters from state_dict() and the optimizer.
+            self.dyn = None
+        elif self.fusion == "learned_scalar":
             self.mix_logit = nn.Parameter(torch.tensor(0.0))
         elif self.fusion == "sample_gate":
             self.sample_gate = nn.Sequential(
@@ -87,9 +92,23 @@ class FlexibleGraphCorrection(MultiHopGraphCorrection):
         a_stat: torch.Tensor,
         m_mask: torch.Tensor,
     ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
-        a_dyn = self.dyn(h_ctx, a_stat, m_mask)
         a_static = self._build_static_graph(a_stat, m_mask)
-        a_fuse, mix = self._fuse(a_dyn, a_static, h_ctx, m_mask)
+        if self.fusion == "static":
+            a_fuse = a_static.unsqueeze(0).expand(
+                h_nodes.shape[0], a_static.shape[0], a_static.shape[1]
+            )
+            mix = torch.zeros(
+                (h_nodes.shape[0], 1, 1), device=h_nodes.device, dtype=h_nodes.dtype
+            )
+            # Keep the auxiliary interface stable without manufacturing a
+            # dynamic graph that this ablation intentionally does not have.
+            a_dyn_aux = torch.zeros(1, device=h_nodes.device, dtype=h_nodes.dtype)
+        else:
+            if self.dyn is None:
+                raise RuntimeError(f"Dynamic graph branch is missing for fusion={self.fusion}")
+            a_dyn = self.dyn(h_ctx, a_stat, m_mask)
+            a_fuse, mix = self._fuse(a_dyn, a_static, h_ctx, m_mask)
+            a_dyn_aux = a_dyn
         a_fuse = self._topk_sparsify(a_fuse)
 
         h = h_nodes
@@ -99,7 +118,7 @@ class FlexibleGraphCorrection(MultiHopGraphCorrection):
             gate = torch.sigmoid(self.gate(torch.cat([h, h_msg], dim=-1)))
             h = self.norm(h + gate * self.drop(delta))
         return h, {
-            "A_dyn": a_dyn,
+            "A_dyn": a_dyn_aux,
             "A_static": a_static.unsqueeze(0).expand_as(a_fuse),
             "A_fuse": a_fuse,
             "fusion_mix": mix,
