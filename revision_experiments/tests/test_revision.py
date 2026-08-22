@@ -29,6 +29,7 @@ from revision_experiments.core.config import (
 from revision_experiments.core.engine import data_protocol_payload
 from revision_experiments.core.engine import set_model_seed
 from revision_experiments.models.variants import build_revision_model
+from revision_experiments.posthoc.parity import compare_scores
 from revision_experiments.scoring.aggregators import aggregate_channels
 from revision_experiments.scoring.local_anomaly import inject_local_anomaly
 
@@ -39,6 +40,15 @@ class AggregationTests(unittest.TestCase):
 
     def test_mean_parity(self):
         np.testing.assert_allclose(aggregate_channels(self.values, "mean"), self.values.mean(axis=1))
+
+    def test_score_parity_accepts_float32_rounding_at_large_scale(self):
+        result = compare_scores([4_444_446.0], [4_444_445.617853752], atol=5e-6)
+        self.assertTrue(result.passed)
+        self.assertGreater(result.max_abs_error, 0.3)
+        self.assertLess(result.max_rel_error, 1e-6)
+
+    def test_score_parity_rejects_material_relative_error(self):
+        self.assertFalse(compare_scores([100.0], [99.0], atol=5e-6).passed)
 
     def test_topk_and_quantile(self):
         np.testing.assert_allclose(aggregate_channels(self.values, "topk_1"), [3.0, 6.0])

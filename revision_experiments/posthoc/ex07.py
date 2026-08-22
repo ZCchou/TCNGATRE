@@ -14,6 +14,7 @@ from revision_experiments.core.paths import ensure_import_paths
 
 from .inference import LoadedSourceModel
 from .io import environment_payload, sha256_file, write_json
+from .parity import compare_scores
 from .source import SourceRun, audit_source
 
 ensure_import_paths()
@@ -184,9 +185,17 @@ def run_ex07(
         )
         if len(parity) != len(original):
             raise RuntimeError("Graph capture parity merge is incomplete")
-        parity_error = float(np.max(np.abs(parity["total_score_source"] - parity["total_score_capture"])))
-        if parity_error > 5e-5:
-            raise RuntimeError(f"Graph capture score parity failed: {parity_error}")
+        parity_result = compare_scores(
+            parity["total_score_source"].to_numpy(),
+            parity["total_score_capture"].to_numpy(),
+            atol=5e-5,
+        )
+        parity_error = parity_result.max_abs_error
+        if not parity_result.passed:
+            raise RuntimeError(
+                "Graph capture score parity failed: "
+                f"max_abs={parity_error}, max_rel={parity_result.max_rel_error}"
+            )
 
         labeled = attach_window_labels(
             scored_df=scored,
@@ -291,6 +300,7 @@ def run_ex07(
             "source_signature": source.source_signature,
             "source_checkpoint_sha256": source.checkpoint_sha256,
             "score_parity_max_abs_error": parity_error,
+            "score_parity_max_rel_error": parity_result.max_rel_error,
             "graph_rows": len(labeled), "metric_rows": len(metrics), "edge_rows": len(edges),
             "period_complete_flights": int((coverage["status"] == "complete_before_during_after").sum()),
             "period_incomplete_flights": int((coverage["status"] != "complete_before_during_after").sum()),

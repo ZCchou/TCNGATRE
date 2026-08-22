@@ -19,6 +19,7 @@ from .data import FlightArray, inject_events
 from .evaluation import write_and_evaluate_real
 from .inference import LoadedSourceModel
 from .io import environment_payload, sha256_file, stable_seed, write_json
+from .parity import compare_scores
 from .source import SourceRun, audit_source
 
 ensure_import_paths()
@@ -247,9 +248,17 @@ def run_ex05(
         )
         if len(parity) != len(original_sequence):
             raise RuntimeError("Mean aggregation parity merge is incomplete")
-        parity_error = float(np.max(np.abs(parity["total_score_source"] - parity["total_score_posthoc"])))
-        if parity_error > 1e-6:
-            raise RuntimeError(f"Mean aggregation parity failed: {parity_error}")
+        parity_result = compare_scores(
+            parity["total_score_source"].to_numpy(),
+            parity["total_score_posthoc"].to_numpy(),
+            atol=1e-6,
+        )
+        parity_error = parity_result.max_abs_error
+        if not parity_result.passed:
+            raise RuntimeError(
+                "Mean aggregation parity failed: "
+                f"max_abs={parity_error}, max_rel={parity_result.max_rel_error}"
+            )
 
         specs = scenario_specs(loaded.cfg.sample_stride, loaded.cfg.horizon_out, smoke=smoke)
         manifest_rows: list[dict[str, Any]] = []
@@ -301,6 +310,7 @@ def run_ex05(
             "source_signature": source.source_signature,
             "source_checkpoint_sha256": source.checkpoint_sha256,
             "mean_parity_max_abs_error": parity_error,
+            "mean_parity_max_rel_error": parity_result.max_rel_error,
             "aggregators": len(AGGREGATORS), "synthetic_scenarios": len(specs),
             "environment": environment_payload(),
         }

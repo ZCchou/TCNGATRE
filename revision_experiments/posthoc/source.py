@@ -13,6 +13,7 @@ from revision_experiments.scoring.aggregators import aggregate_dataframe
 
 from .constants import DATASETS, MODEL_SEEDS
 from .io import sha256_file
+from .parity import SCORE_RTOL, compare_scores
 
 ensure_import_paths()
 
@@ -232,6 +233,8 @@ def audit_source(source: SourceRun) -> dict[str, Any]:
             errors.append(f"non_finite_primary_metric={key}")
     raw_parity = float("nan")
     smooth_parity = float("nan")
+    raw_relative_parity = float("nan")
+    smooth_relative_parity = float("nan")
     try:
         source_residuals = _canonicalize_sensor_vectors(pd.read_csv(source.failure_residuals))
         rebuilt = aggregate_dataframe(
@@ -251,16 +254,26 @@ def audit_source(source: SourceRun) -> dict[str, Any]:
                 f"source_score_row_mismatch=sequence:{len(sequence)},residuals:{len(rebuilt)},merged:{len(parity)}"
             )
         else:
-            raw_parity = float(np.max(np.abs(
-                parity["raw_total_score_source"] - parity["raw_total_score_rebuilt"]
-            )))
-            smooth_parity = float(np.max(np.abs(
-                parity["total_score_source"] - parity["total_score_rebuilt"]
-            )))
-            if raw_parity > RAW_SCORE_ATOL or smooth_parity > SMOOTH_SCORE_ATOL:
+            raw_result = compare_scores(
+                parity["raw_total_score_source"].to_numpy(),
+                parity["raw_total_score_rebuilt"].to_numpy(),
+                atol=RAW_SCORE_ATOL,
+            )
+            smooth_result = compare_scores(
+                parity["total_score_source"].to_numpy(),
+                parity["total_score_rebuilt"].to_numpy(),
+                atol=SMOOTH_SCORE_ATOL,
+            )
+            raw_parity = raw_result.max_abs_error
+            smooth_parity = smooth_result.max_abs_error
+            raw_relative_parity = raw_result.max_rel_error
+            smooth_relative_parity = smooth_result.max_rel_error
+            if not raw_result.passed or not smooth_result.passed:
                 errors.append(
                     "source_score_inconsistent="
-                    f"raw:{raw_parity:.9g},smooth:{smooth_parity:.9g}"
+                    f"raw_abs:{raw_parity:.9g},raw_rel:{raw_relative_parity:.9g},"
+                    f"smooth_abs:{smooth_parity:.9g},smooth_rel:{smooth_relative_parity:.9g},"
+                    f"rtol:{SCORE_RTOL:.9g}"
                 )
     except Exception as exc:
         errors.append(f"source_score_audit_failed={exc!r}")
@@ -274,7 +287,9 @@ def audit_source(source: SourceRun) -> dict[str, Any]:
         "scored_failure_flights": len(score_flights),
         "primary_labeled_flights": len(primary_flights),
         "source_raw_score_max_abs_error": raw_parity,
+        "source_raw_score_max_rel_error": raw_relative_parity,
         "source_smooth_score_max_abs_error": smooth_parity,
+        "source_smooth_score_max_rel_error": smooth_relative_parity,
         "primary_metrics_path": str(source.primary_metrics),
         "errors": errors,
     }
