@@ -15,7 +15,6 @@ from model.tcngatre import MultiHopGraphCorrection, STGraphTCN  # noqa: E402
 
 
 FUSION_BY_VARIANT = {
-    "static_only": "static",
     "dynamic_only": "dynamic",
     "fusion_static": "static",
     "fusion_dynamic": "dynamic",
@@ -23,6 +22,48 @@ FUSION_BY_VARIANT = {
     "fusion_sample_gate": "sample_gate",
     "fusion_concat_mlp": "concat_mlp",
 }
+
+
+class LightweightStaticGraphCorrection(nn.Module):
+    """Parameter-free, one-hop smoothing with a fixed MIC adjacency."""
+
+    def __init__(self, residual_weight: float = 0.15):
+        super().__init__()
+        self.residual_weight = float(min(max(residual_weight, 0.0), 1.0))
+
+    @staticmethod
+    def _build_static_graph(a_stat: torch.Tensor, m_mask: torch.Tensor) -> torch.Tensor:
+        valid = m_mask > 0
+        a_static = a_stat.clamp_min(0.0).masked_fill(~valid, 0.0)
+        empty_rows = a_static.sum(dim=-1) <= 0
+        if empty_rows.any():
+            eye = torch.eye(a_static.shape[0], device=a_static.device, dtype=a_static.dtype)
+            a_static = torch.where(empty_rows.unsqueeze(-1), eye, a_static)
+        return a_static / a_static.sum(dim=-1, keepdim=True).clamp_min(1e-8)
+
+    def forward(
+        self,
+        h_nodes: torch.Tensor,
+        h_ctx: torch.Tensor,
+        a_stat: torch.Tensor,
+        m_mask: torch.Tensor,
+    ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+        del h_ctx
+        a_static = self._build_static_graph(a_stat, m_mask)
+        a_batch = a_static.unsqueeze(0).expand(
+            h_nodes.shape[0], a_static.shape[0], a_static.shape[1]
+        )
+        neighbour_state = torch.matmul(a_batch, h_nodes)
+        weight = self.residual_weight
+        corrected = (1.0 - weight) * h_nodes + weight * neighbour_state
+        return corrected, {
+            "A_dyn": torch.zeros(1, device=h_nodes.device, dtype=h_nodes.dtype),
+            "A_static": a_batch,
+            "A_fuse": a_batch,
+            "fusion_mix": torch.zeros(
+                (h_nodes.shape[0], 1, 1), device=h_nodes.device, dtype=h_nodes.dtype
+            ),
+        }
 
 
 class FlexibleGraphCorrection(MultiHopGraphCorrection):
@@ -158,6 +199,17 @@ def build_revision_model(revision_cfg, legacy_cfg, num_nodes: int, device: torch
         model = _base_model(legacy_cfg, num_nodes)
         model._correction_positions = []
         model.graph_corrections = nn.ModuleList()
+        return model.to(device)
+    if variant == "static_only":
+        model = _base_model(legacy_cfg, num_nodes)
+        # Deliberately simple static baseline: one parameter-free adjacency
+        # smoothing step after the final TCN block only.
+        model._correction_positions = [model.num_blocks - 1]
+        model.graph_corrections = nn.ModuleList([
+            LightweightStaticGraphCorrection(
+                residual_weight=legacy_cfg.graph_gate_init,
+            )
+        ])
         return model.to(device)
 
     fusion = FUSION_BY_VARIANT.get(variant)

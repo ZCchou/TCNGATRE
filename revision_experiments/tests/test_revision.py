@@ -237,7 +237,7 @@ class RevisionTrainingParityTests(unittest.TestCase):
         full_cfg = make_config("ex01", "simulate", "full", 0, smoke=True)
         self.assertEqual(
             static_cfg.variant_revision,
-            "static_graph_without_dynamic_attention_v2",
+            "lightweight_terminal_static_smoothing_v3",
         )
         self.assertEqual(full_cfg.variant_revision, "")
 
@@ -256,6 +256,15 @@ class RevisionTrainingParityTests(unittest.TestCase):
             sum(parameter.numel() for parameter in static_model.parameters()),
             sum(parameter.numel() for parameter in full_model.parameters()),
         )
+        self.assertEqual(
+            static_model._correction_positions,
+            [static_model.num_blocks - 1],
+        )
+        self.assertEqual(len(static_model.graph_corrections), 1)
+        self.assertEqual(
+            sum(parameter.numel() for parameter in static_model.graph_corrections.parameters()),
+            0,
+        )
 
         x = torch.randn(2, 16, 4, 1)
         a = torch.rand(4, 4)
@@ -265,6 +274,10 @@ class RevisionTrainingParityTests(unittest.TestCase):
         self.assertEqual(tuple(prediction.shape), (2, 4, 4, 1))
         self.assertEqual(aux["A_dyn"].numel(), 1)
         torch.testing.assert_close(aux["A_fuse"], aux["A_static"])
+        prediction.square().mean().backward()
+        self.assertTrue(
+            any(parameter.grad is not None for parameter in static_model.parameters())
+        )
 
 
 class BaselineCommonDataTests(unittest.TestCase):

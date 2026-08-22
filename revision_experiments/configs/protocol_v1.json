@@ -7,7 +7,7 @@
   "primary_threshold": "spot",
   "ema_alpha": 0.25,
   "variant_revisions": {
-    "static_only": "static_graph_without_dynamic_attention_v2"
+    "static_only": "lightweight_terminal_static_smoothing_v3"
   },
   "experiments": {
     "ex01": [
