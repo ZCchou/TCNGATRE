@@ -19,6 +19,8 @@ from revision_experiments.baselines.export_common_data import (
     split_fingerprint,
     validate_common_data,
 )
+from revision_experiments.baselines.mstgcnet_model import MSTGCNetApprox
+from revision_experiments.baselines.tsae_uav_model import TSAEUAV
 from revision_experiments.core.config import (
     load_protocol,
     make_config,
@@ -428,6 +430,121 @@ class BaselineCommonDataTests(unittest.TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "worker failed"):
             list(progress_iter(broken_items(), total=2, desc="test", progress_every=1))
+
+
+class ReviewerBaselineReproductionTests(unittest.TestCase):
+    def test_ex03_filter_expands_to_two_real_adapter_runs(self):
+        from revision_experiments.run_revision import _task_rows
+
+        rows = _task_rows(
+            ["ex03"], ["alfa"], [0], True, variants=["mstgcnet", "tsae_uav"]
+        )
+        self.assertEqual(len(rows), 2)
+        self.assertEqual({row["variant"] for row in rows}, {"mstgcnet", "tsae_uav"})
+
+    def test_tsae_uav_forward_backward_is_finite(self):
+        model = TSAEUAV(channels=12, d_model=64, top_k=3, layers=2)
+        values = torch.randn(2, 16, 12)
+        reconstructed = model(values)
+        self.assertEqual(tuple(reconstructed.shape), tuple(values.shape))
+        self.assertTrue(torch.isfinite(reconstructed).all())
+        reconstructed.square().mean().backward()
+        self.assertTrue(all(parameter.grad is not None for parameter in model.parameters()))
+
+    def test_mstgcnet_approx_forward_backward_and_sparse_graph(self):
+        model = MSTGCNetApprox(nodes=12, d_model=16, heads=2)
+        values = torch.randn(2, 96, 12)
+        reconstructed, balance, adjacencies = model(values)
+        self.assertEqual(tuple(reconstructed.shape), tuple(values.shape))
+        self.assertEqual(len(adjacencies), 3)
+        self.assertTrue(torch.isfinite(reconstructed).all())
+        self.assertTrue(torch.isfinite(balance))
+        for adjacency in adjacencies:
+            self.assertEqual(tuple(adjacency.shape), (12, 12))
+            torch.testing.assert_close(adjacency.sum(dim=-1), torch.ones(12))
+            self.assertTrue((adjacency > 0).sum(dim=-1).le(5).all())
+        (reconstructed.square().mean() + 0.01 * balance).backward()
+        self.assertTrue(all(parameter.grad is not None for parameter in model.parameters()))
+
+    @staticmethod
+    def _write_reviewer_metric_files(run_dir: Path, value: float) -> None:
+        analysis = run_dir / "infer_tcngatre_failure" / "score_threshold_analysis"
+        analysis.mkdir(parents=True)
+        pd.DataFrame([{
+            "threshold_method": "spot", "label_col": "label_any",
+            "precision": value, "recall": value, "f1": value,
+            "fpr": 1.0 - value, "auroc": value,
+            "average_precision": value,
+        }]).to_csv(analysis / "summary_metrics.csv", index=False)
+        pd.DataFrame([
+            {
+                "flight": f"flight_{index}", "threshold_method": "spot",
+                "label_col": "label_any", "f1": value - 0.01 * index,
+                "average_precision": value - 0.005 * index,
+            }
+            for index in range(2)
+        ]).to_csv(
+            analysis / "per_flight_total_score_threshold_methods.csv", index=False
+        )
+
+    def test_reviewer_summary_uses_formal_ex03_and_main_comparison_only(self):
+        from revision_experiments.summarize_main_comparison import (
+            _tcngatre_data_protocol_signature,
+        )
+        from revision_experiments.summarize_reviewer_baselines import (
+            _canonical_split,
+            summarize,
+        )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_root = Path(temporary)
+            results = temporary_root / "protocol_v1"
+            reference = temporary_root / "main_reference"
+            seeds = [0, 1]
+            for baseline, value, classification in (
+                ("mstgcnet", 0.6, "released_scaffold_engineering_reimplementation"),
+                ("tsae_uav", 0.7, "paper_based_protocol_compatible_reimplementation"),
+            ):
+                for seed in seeds:
+                    cfg = make_config("ex03", "alfa", baseline, seed)
+                    protocol = data_protocol_payload(cfg.to_legacy())
+                    run = results / "ex03" / "alfa" / baseline / f"seed_{seed}"
+                    self._write_reviewer_metric_files(run, value + 0.01 * seed)
+                    (run / "DONE.json").write_text(json.dumps({
+                        "status": "complete", "config_hash": cfg.config_hash,
+                        "data_protocol_hash": protocol["data_protocol_hash"],
+                        "reproduction_classification": classification,
+                    }), encoding="utf-8")
+            reference_protocol = data_protocol_payload(
+                make_config("ex03", "alfa", "mstgcnet", 0).to_legacy()
+            )
+            reference_split = _canonical_split(reference_protocol)
+            for seed in seeds:
+                run = reference / f"seed_{seed}"
+                self._write_reviewer_metric_files(run, 0.8 + 0.01 * seed)
+                (run / "split_flights.json").write_text(
+                    json.dumps({
+                        "train_flights": reference_split["train"],
+                        "validation_flights": reference_split["validation"],
+                        "failure_flights_scored_only": reference_split["failure"],
+                    }), encoding="utf-8",
+                )
+                (run / "DONE.json").write_text(json.dumps({
+                    "status": "complete", "sample_stride": 16, "batch_size": 128,
+                    "data_protocol_signature": _tcngatre_data_protocol_signature("alfa"),
+                }), encoding="utf-8")
+            output = temporary_root / "summary"
+            report = summarize(
+                datasets=["alfa"], seeds=seeds, tcngatre_root=reference,
+                output_root=output, n_resamples=20, results_root=results,
+            )
+            self.assertEqual(report["status"], "complete")
+            self.assertIn("main_comparison", report["reference"])
+            significance = pd.read_csv(output / "paired_significance.csv")
+            self.assertEqual(len(significance), 4)
+            self.assertTrue(
+                (significance["mean_difference_baseline_minus_tcngatre"] < 0).all()
+            )
 
 
 if __name__ == "__main__":

@@ -121,7 +121,9 @@ def _baseline_placeholder(experiment: str, dataset: str, variant: str, seed: int
     if audit_path.exists():
         audit = json.loads(audit_path.read_text(encoding="utf-8")).get("baselines", {}).get(variant, {})
     environment = PACKAGE_ROOT / "envs" / f"{variant}.yml"
-    if status.startswith("not_reproducible"):
+    if status == "skipped_by_scope":
+        run_status = "skipped_by_scope"
+    elif status.startswith("not_reproducible"):
         run_status = "not_reproducible"
     elif audit.get("audit_status") == "incomplete_pending_clean_room_review":
         run_status = "pending_reproducibility_review"
@@ -136,7 +138,11 @@ def _baseline_placeholder(experiment: str, dataset: str, variant: str, seed: int
         "environment_file": str(environment) if environment.exists() else None,
         "config_hash": cfg.config_hash,
     }
-    write_json(cfg.run_dir / ("NOT_REPRODUCIBLE.json" if payload["status"] == "not_reproducible" else "PENDING_ADAPTER.json"), payload)
+    marker = {
+        "not_reproducible": "NOT_REPRODUCIBLE.json",
+        "skipped_by_scope": "SKIPPED_SCOPE.json",
+    }.get(payload["status"], "PENDING_ADAPTER.json")
+    write_json(cfg.run_dir / marker, payload)
     return payload
 
 
@@ -150,7 +156,10 @@ def execute_tasks(rows: list[dict], force: bool = False) -> list[dict]:
         print(f"[{index}/{len(rows)}] {experiment}/{cfg.dataset}/{cfg.variant}/seed_{cfg.model_seed}", flush=True)
         if experiment in TRAINING_EXPERIMENTS:
             outcome = execute_training_run(cfg, force=force)
-        elif experiment == "ex04" and cfg.variant in {"catch", "carots"}:
+        elif (
+            (experiment == "ex04" and cfg.variant in {"catch", "carots"})
+            or (experiment == "ex03" and cfg.variant in {"mstgcnet", "tsae_uav"})
+        ):
             outcome = execute_isolated_baseline(cfg, force=force)
         elif experiment in BASELINE_EXPERIMENTS:
             outcome = _baseline_placeholder(

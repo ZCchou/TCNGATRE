@@ -26,7 +26,9 @@
     "paper_url": "https://doi.org/10.1109/JIOT.2026.3661961",
     "repository_url": "https://github.com/WindchaserHG/MSTGCNet.git",
     "ref": "main",
-    "code_status": "official_incomplete_pending_audit",
+    "commit": "d5087989b0d016fe6b04e4cc8a7c6074d673b7ac",
+    "code_status": "official_scaffold_incomplete_engineering_reimplementation",
+    "reproduction_classification": "released_scaffold_engineering_reimplementation",
     "required_datasets": ["alfa"]
   },
   "tsae_uav": {
@@ -36,7 +38,8 @@
     "paper_url": "https://doi.org/10.1016/j.ast.2025.111431",
     "repository_url": null,
     "ref": null,
-    "code_status": "not_reproducible_no_verified_official_code",
+    "code_status": "paper_based_protocol_compatible_reimplementation",
+    "reproduction_classification": "paper_based_protocol_compatible_reimplementation",
     "required_datasets": ["alfa"]
   },
   "m2sc2_ad": {
@@ -46,7 +49,8 @@
     "paper_url": "https://doi.org/10.1016/j.ipm.2026.104948",
     "repository_url": null,
     "ref": null,
-    "code_status": "not_reproducible_no_verified_official_code",
+    "code_status": "skipped_by_scope",
+    "reproduction_classification": "skipped_by_scope",
     "required_datasets": ["alfa"]
   }
 }

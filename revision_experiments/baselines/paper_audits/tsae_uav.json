@@ -1,0 +1,32 @@
+{
+  "title": "TSAE-UAV: A time-sense autoencoder for unsupervised anomaly detection of UAV based on flight data",
+  "doi": "10.1016/j.ast.2025.111431",
+  "source_type": "authoritative_publisher_pdf",
+  "local_reference_path": "F:/360MoveData/Users/Administrator/Desktop/TCNGATRE修改结果/论文/1-s2.0-S1270963825014956-main.pdf",
+  "pdf_committed_to_repository": false,
+  "pdf_sha256": "5cdd8b21517e38ec60bb286d952a6564b0f84e6807bbc8869322ebc87a4128f7",
+  "paper_parameters": {
+    "window": 16,
+    "embedding_dimension": 64,
+    "fft_top_k": 3,
+    "tsblock_layers": 2,
+    "batch_size": 128,
+    "optimizer": "Adam",
+    "learning_rate": 0.0001,
+    "loss": "MSE reconstruction",
+    "inception_branches": [
+      "1x1",
+      "1x1 then 3x3",
+      "1x1 then 5x5",
+      "3x3 max-pool then 1x1"
+    ]
+  },
+  "protocol_adaptations": [
+    "Use the fixed ALFA 29/1/16 split and the current 12-channel common-data export.",
+    "Use train-normal-only Z-score statistics.",
+    "Use stride 16 for both training and scoring.",
+    "Replace the paper's percentile/point-adjusted decision rule with causal EMA plus flightwise SPOT.",
+    "Report Micro label_any metrics under the shared revision protocol."
+  ],
+  "classification": "paper_based_protocol_compatible_reimplementation"
+}

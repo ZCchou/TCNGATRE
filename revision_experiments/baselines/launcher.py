@@ -15,8 +15,18 @@ RUNTIME_PATHS = PACKAGE_ROOT / "envs" / "runtime_paths.json"
 
 
 def runtime_python(baseline: str) -> Path:
-    paths = json.loads(RUNTIME_PATHS.read_text(encoding="utf-8"))
-    target = Path(paths[baseline])
+    paths = (
+        json.loads(RUNTIME_PATHS.read_text(encoding="utf-8"))
+        if RUNTIME_PATHS.is_file() else {}
+    )
+    raw = paths.get(baseline)
+    if raw is None and baseline in {"mstgcnet", "tsae_uav"}:
+        # These paper/scaffold reproductions have no incompatible official package stack.
+        # They intentionally run in the already validated revision-core interpreter.
+        return Path(sys.executable).resolve()
+    if raw is None:
+        raise KeyError(f"No isolated runtime is configured for baseline: {baseline}")
+    target = Path(raw)
     if not target.exists():
         raise FileNotFoundError(
             f"The isolated {baseline} runtime does not exist: {target}. "

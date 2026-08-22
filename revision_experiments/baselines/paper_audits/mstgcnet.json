@@ -1,0 +1,40 @@
+{
+  "title": "Multiscale Spatio-Temporal Graph Convolutional Network for UAV Anomaly Detection",
+  "doi": "10.1109/JIOT.2026.3661961",
+  "official_repository": "https://github.com/WindchaserHG/MSTGCNet",
+  "pinned_commit": "d5087989b0d016fe6b04e4cc8a7c6074d673b7ac",
+  "repository_audit": {
+    "official_entrypoint_complete": false,
+    "released_model_directly_executable": false,
+    "empty_core_implementations": [
+      "models/MSTGCNet.py support classes",
+      "layers/GMoE.py",
+      "layers/GraphGCNLayer.py"
+    ],
+    "official_components_executed": []
+  },
+  "engineering_configuration": {
+    "window": 96,
+    "layers": 3,
+    "d_model": 64,
+    "top_k": 3,
+    "knn": 5,
+    "attention_heads": 2,
+    "experts_per_layer": [4, 4, 4],
+    "patch_size_list": [[16, 12, 8, 32], [12, 8, 6, 4], [8, 6, 4, 2]],
+    "trend_kernels": [4, 8, 12],
+    "seasonality": 3,
+    "dropout": 0.1,
+    "revin": true,
+    "residual": true
+  },
+  "protocol_adaptations": [
+    "Keep the official repository read-only and pinned for provenance only.",
+    "Replace unavailable core operations with an auditable engineering approximation.",
+    "Use the fixed ALFA 29/1/16 common-data split and train-normal-only Z-score statistics.",
+    "Do not access the failure/test split during training epochs.",
+    "Replace native labels, ATSSD and point adjustment with causal EMA plus flightwise SPOT.",
+    "Report Micro label_any metrics under the shared revision protocol."
+  ],
+  "classification": "released_scaffold_engineering_reimplementation"
+}

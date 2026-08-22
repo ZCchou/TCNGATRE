@@ -140,3 +140,38 @@ paper results.
 Official third-party repositories are kept in `_external/` and never imported
 into the legacy Python namespace.  Each source is audited and its resolved Git
 commit is recorded before an adapter is allowed to run.
+
+## Reviewer-requested UAV baseline reproductions (EX-03)
+
+TSAE-UAV is a paper-based, protocol-compatible reimplementation. Its FFT
+Top-K period selection, two TSBlocks, four-branch Inception blocks and published
+training hyperparameters are recorded in `baselines/paper_audits/tsae_uav.json`.
+The publisher PDF is not committed; only its DOI, local reference path and
+SHA-256 are recorded.
+
+The official MSTGCNet checkout is pinned to commit
+`d5087989b0d016fe6b04e4cc8a7c6074d673b7ac`, but its released GMoE, graph
+convolution and supporting model classes contain empty `pass` implementations.
+It is therefore used only as read-only provenance. The runnable experiment is
+explicitly labelled `released_scaffold_engineering_reimplementation`; it must
+not be described as an official or strict numerical reproduction. M2SC2-AD is
+recorded as `skipped_by_scope` and never emits guessed metrics.
+
+Both runnable EX-03 adapters require the ALFA 29/1/16 common-data export, 12
+channels, train-normal-only Z-score statistics, boundary-safe windows and the
+shared `label_any + causal EMA + flightwise SPOT + Micro` evaluation protocol.
+
+```powershell
+python revision_experiments/run_revision.py fetch-baselines --baselines mstgcnet
+python revision_experiments/run_revision.py prepare-baseline-data --datasets alfa
+python -u revision_experiments/run_revision.py run --experiments ex03 --variants mstgcnet,tsae_uav --datasets alfa --seeds 0 --smoke --manifest-name ex03_uav_baselines_smoke.csv
+python -u revision_experiments/run_revision.py run --experiments ex03 --variants mstgcnet,tsae_uav --datasets alfa --seeds 0,1,2,3,4 --manifest-name ex03_uav_baselines_5seed.csv
+python revision_experiments/summarize_reviewer_baselines.py --datasets alfa --seeds 0 1 2 3 4 --tcngatre-root revision_results/protocol_v1/main_comparison/alfa/TCNGATRE --require-complete
+```
+
+The combined summary is written to
+`revision_results/protocol_v1/summary/reviewer_uav_baselines/`. It refuses stale
+protocol hashes, any split other than ALFA 29/1/16, and TCNGATRE references
+outside the explicitly supplied main-comparison root. Paired per-flight and
+per-seed significance is reported against the original main-comparison
+TCNGATRE, never against the ablation `ex01/full` runs.

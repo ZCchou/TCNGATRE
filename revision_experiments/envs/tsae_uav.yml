@@ -1,4 +1,4 @@
-name: tcngatre-revision-mstgcnet
+name: tcngatre-revision-tsae-uav
 channels: [pytorch, conda-forge]
 dependencies:
   - python=3.10

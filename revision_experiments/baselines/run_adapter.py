@@ -16,8 +16,12 @@ from revision_experiments.core.config import make_config  # noqa: E402
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run one official isolated baseline adapter.")
-    parser.add_argument("--baseline", choices=["catch", "carots"], required=True)
+    parser = argparse.ArgumentParser(
+        description="Run one isolated official-code or protocol-compatible baseline adapter."
+    )
+    parser.add_argument(
+        "--baseline", choices=["catch", "carots", "mstgcnet", "tsae_uav"], required=True
+    )
     parser.add_argument("--dataset", choices=["alfa", "gpsdata", "simulate"], required=True)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--smoke", action="store_true")
@@ -27,11 +31,16 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    cfg = make_config("ex04", args.dataset, args.baseline, args.seed, smoke=args.smoke)
+    experiment = "ex03" if args.baseline in {"mstgcnet", "tsae_uav"} else "ex04"
+    cfg = make_config(experiment, args.dataset, args.baseline, args.seed, smoke=args.smoke)
     if args.baseline == "catch":
         from revision_experiments.baselines.catch_adapter import run
-    else:
+    elif args.baseline == "carots":
         from revision_experiments.baselines.carots_adapter import run
+    elif args.baseline == "mstgcnet":
+        from revision_experiments.baselines.mstgcnet_adapter import run
+    else:
+        from revision_experiments.baselines.tsae_uav_adapter import run
     outcome = run(cfg, force=args.force)
     print(json.dumps(outcome, ensure_ascii=False, indent=2, default=str), flush=True)
     return 0

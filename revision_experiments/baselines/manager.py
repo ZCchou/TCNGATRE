@@ -60,8 +60,15 @@ def fetch_and_audit(names: list[str] | None = None) -> dict:
         url = source.get("repository_url")
         entry = {**source, "name": name}
         if not url:
-            entry["audit_status"] = "not_reproducible"
-            entry["reason"] = "No verified official repository was found. No numeric result will be fabricated."
+            if source.get("code_status") == "skipped_by_scope":
+                entry["audit_status"] = "skipped_by_scope"
+                entry["reason"] = "Excluded from this implementation scope; no numeric result will be emitted."
+            elif source.get("code_status", "").startswith("paper_based_protocol_compatible"):
+                entry["audit_status"] = "paper_based_reimplementation_no_official_code"
+                entry["reason"] = "No official code was verified; the isolated adapter is based on the audited paper."
+            else:
+                entry["audit_status"] = "not_reproducible"
+                entry["reason"] = "No verified official repository was found. No numeric result will be fabricated."
             report["baselines"][name] = entry
             continue
         target = EXTERNAL_ROOT / name
@@ -71,12 +78,25 @@ def fetch_and_audit(names: list[str] | None = None) -> dict:
                     "git", "clone", "--depth", "1", "--filter=blob:none",
                     "--branch", source["ref"], url, str(target),
                 ])
+            requested_commit = source.get("commit")
+            if requested_commit and _run(["git", "rev-parse", "HEAD"], cwd=target) != requested_commit:
+                _run(["git", "fetch", "--depth", "1", "origin", requested_commit], cwd=target)
+                _run(["git", "checkout", "--detach", requested_commit], cwd=target)
             entry.update(audit_repository(target))
+            if requested_commit and entry["commit"] != requested_commit:
+                raise RuntimeError(
+                    f"Pinned commit mismatch for {name}: expected={requested_commit}, actual={entry['commit']}"
+                )
             if not entry["required_files"]["README.md"] or entry["python_file_count"] == 0:
                 entry["audit_status"] = "official_checkout_incomplete"
                 entry["reason"] = "The pinned commit exists, but its executable source tree is incomplete."
-            elif source["code_status"] == "official_incomplete_pending_audit":
-                entry["audit_status"] = "incomplete_pending_clean_room_review"
+            elif source["code_status"].startswith("official_scaffold_incomplete"):
+                entry["audit_status"] = "official_scaffold_fetched_incomplete"
+                entry["reason"] = (
+                    "The repository is pinned for provenance, but its released GMoE and graph "
+                    "core contains empty implementations. The isolated adapter uses an explicitly "
+                    "labelled engineering approximation and does not execute those empty components."
+                )
             elif entry["missing_tracked_file_count"]:
                 entry["audit_status"] = "official_code_fetched_bundled_data_incomplete"
                 entry["reason"] = (
