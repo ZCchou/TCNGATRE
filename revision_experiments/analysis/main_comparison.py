@@ -35,14 +35,32 @@ def _write_json(path: Path, payload: Any) -> None:
     )
 
 
-def _status_for_run(run_dir: Path) -> str:
-    if (run_dir / "DONE.json").is_file():
-        return "complete"
+def _status_for_run(run: dict) -> tuple[str, str | None]:
+    run_dir = Path(run["run_root"])
+    done_path = run_dir / "DONE.json"
+    if done_path.is_file():
+        try:
+            done = json.loads(done_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError) as exc:
+            return "invalid_done", f"unreadable DONE.json: {exc!r}"
+        if done.get("status") != "complete":
+            return "invalid_done", f"DONE status is {done.get('status')!r}"
+        for field in ("sample_stride", "batch_size", "data_protocol_signature"):
+            expected = run.get(field)
+            if expected is None:
+                continue
+            actual = done.get(field)
+            if str(actual) != str(expected):
+                return (
+                    "stale_config",
+                    f"DONE {field} mismatch: expected {expected!r}, found {actual!r}",
+                )
+        return "complete", None
     if (run_dir / "FAILED.json").is_file():
-        return "failed"
+        return "failed", "FAILED.json is present"
     if (run_dir / "PARTIAL.json").is_file() or run_dir.exists():
-        return "partial"
-    return "missing"
+        return "partial", "run is incomplete"
+    return "missing", "run directory is missing"
 
 
 def _micro_primary_metrics(run: dict) -> tuple[dict | None, str | None]:
@@ -83,7 +101,9 @@ def _micro_primary_metrics(run: dict) -> tuple[dict | None, str | None]:
     }
     for metric in PRIMARY_METRICS:
         value = pd.to_numeric(pd.Series([source[metric]]), errors="coerce").iloc[0]
-        row[metric] = float(value) if np.isfinite(value) else float("nan")
+        if not np.isfinite(value):
+            return None, f"non-finite Micro metric: {metric}"
+        row[metric] = float(value)
     for metric in COUNT_METRICS:
         if metric in selected.columns:
             value = pd.to_numeric(pd.Series([source[metric]]), errors="coerce").iloc[0]
@@ -126,7 +146,7 @@ def summarize_main_comparison(result_root: Path, expected_runs: list[dict]) -> d
     missing_rows: list[dict[str, Any]] = []
     for run in expected_runs:
         run_dir = Path(run["run_root"])
-        status = _status_for_run(run_dir)
+        status, completion_error = _status_for_run(run)
         primary, metric_error = _micro_primary_metrics(run) if status == "complete" else (None, None)
         if primary is not None:
             primary_path = run_dir / "primary_metrics.json"
@@ -137,6 +157,7 @@ def summarize_main_comparison(result_root: Path, expected_runs: list[dict]) -> d
             {
                 **run,
                 "status": effective_status,
+                "completion_error": completion_error,
                 "metric_error": metric_error,
                 "done_marker": str(run_dir / "DONE.json"),
             }
@@ -149,7 +170,7 @@ def summarize_main_comparison(result_root: Path, expected_runs: list[dict]) -> d
                     "model": run["model"],
                     "seed": int(run["seed"]),
                     "status": effective_status,
-                    "reason": metric_error or effective_status,
+                    "reason": completion_error or metric_error or effective_status,
                 }
             )
 

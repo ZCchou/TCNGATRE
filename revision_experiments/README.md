@@ -91,6 +91,20 @@ global `summary_metrics.csv` row with `threshold_method=spot` and
 `label_col=label_any`. Per-flight files remain native diagnostic artifacts but
 are not used in the five-seed statistical summary.
 
+Existing comparison results can be audited and summarized independently of the
+latest run manifest:
+
+```powershell
+python revision_experiments/summarize_main_comparison.py
+python revision_experiments/summarize_main_comparison.py --require-complete
+```
+
+The standalone command checks the complete 6 models x 3 datasets x 5 seeds =
+90-cell matrix by default. It rejects missing or non-finite Micro metrics and
+stale TCNGATRE results whose data protocol, ALFA stride, or GPSData batch size
+does not match the current formal profile. Tables are written to
+`revision_results/protocol_v1/main_comparison/summary/`.
+
 CATCH and CAROTS are launched through the Python executables pinned in
 `envs/runtime_paths.json`.  Their adapters use official model/loss code at the
 audited commit, boundary-safe flight windows, train-normal-only scaling, and

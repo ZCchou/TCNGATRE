@@ -14,6 +14,7 @@ import run_all_models_all_datasets as runner
 from revision_experiments.analysis.main_comparison import summarize_main_comparison
 from revision_experiments.core.integrity import load_approved_changes
 from revision_experiments.main_comparison.deterministic_entrypoint import configure_determinism
+from revision_experiments.summarize_main_comparison import build_expected_runs
 
 
 class MainComparisonPlanningTests(unittest.TestCase):
@@ -266,6 +267,24 @@ class IntegrityApprovalTests(unittest.TestCase):
 
 
 class MainComparisonSummaryTests(unittest.TestCase):
+    def test_standalone_collector_builds_90_audited_cells(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            rows = build_expected_runs(
+                Path(temporary),
+                list(runner.MODEL_ORDER),
+                list(runner.DATASET_ORDER),
+                [0, 1, 2, 3, 4],
+            )
+            self.assertEqual(len(rows), 90)
+            self.assertEqual(len({row["run_id"] for row in rows}), 90)
+            profiles = {
+                row["dataset"]: (row["sample_stride"], row["batch_size"])
+                for row in rows if row["model"] == "TCNGATRE" and row["seed"] == 0
+            }
+            self.assertEqual(profiles["alfa"], (16, 128))
+            self.assertEqual(profiles["simulate"], (4, 128))
+            self.assertEqual(profiles["gpsdata"], (4, 32))
+
     @staticmethod
     def _create_run(result_root: Path, seed: int, f1_offset: float) -> dict:
         run_dir = result_root / "simulate" / "USAD" / f"seed_{seed}"
@@ -316,6 +335,13 @@ class MainComparisonSummaryTests(unittest.TestCase):
             self.assertEqual(primary.loc[0, "aggregation"], "micro_over_all_windows")
             self.assertEqual(int(seed_summary.loc[0, "seed_count"]), 2)
             self.assertTrue((result_root / "run_status.csv").is_file())
+
+            runs[0]["batch_size"] = 32
+            stale = summarize_main_comparison(result_root, runs)
+            self.assertEqual(stale["status"], "incomplete")
+            missing = pd.read_csv(result_root / "summary" / "missing_experiment_cells.csv")
+            self.assertEqual(missing.loc[0, "status"], "stale_config")
+            self.assertIn("batch_size mismatch", missing.loc[0, "reason"])
 
 
 if __name__ == "__main__":
