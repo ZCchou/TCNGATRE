@@ -18,6 +18,7 @@ from revision_experiments.posthoc.ex05 import scenario_specs
 from revision_experiments.posthoc.ex07 import _period_indices
 from revision_experiments.posthoc.evaluation import normalize_vector_columns
 from revision_experiments.posthoc.summarize import summarize_posthoc
+from revision_experiments.posthoc.source import _resolve_primary_metrics
 
 
 def _flight() -> FlightArray:
@@ -34,6 +35,18 @@ def _stats() -> ChannelStatistics:
 
 
 class PosthocTests(unittest.TestCase):
+    def test_primary_metrics_falls_back_to_main_comparison_run_root(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            run = Path(temp_dir) / "seed_0"
+            analysis = run / "infer_tcngatre_failure" / "score_threshold_analysis"
+            analysis.mkdir(parents=True)
+            root_primary = run / "primary_metrics.json"
+            root_primary.write_text("{}", encoding="utf-8")
+            self.assertEqual(_resolve_primary_metrics(run, analysis), root_primary)
+            analysis_primary = analysis / "primary_metrics.json"
+            analysis_primary.write_text("{}", encoding="utf-8")
+            self.assertEqual(_resolve_primary_metrics(run, analysis), analysis_primary)
+
     def test_robustness_corruptions_are_deterministic_finite_and_non_mutating(self) -> None:
         original = _flight()
         source = {original.flight: original}

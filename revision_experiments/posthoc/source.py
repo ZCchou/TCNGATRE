@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 
 from revision_experiments.core.paths import REPO_ROOT, ensure_import_paths
+from revision_experiments.scoring.aggregators import aggregate_dataframe
 
 from .constants import DATASETS, MODEL_SEEDS
 from .io import sha256_file
@@ -20,6 +21,8 @@ from tcngatreconfig import TCNGATREConfig  # noqa: E402
 
 
 INFER_NAME = "infer_tcngatre_failure"
+RAW_SCORE_ATOL = 5e-6
+SMOOTH_SCORE_ATOL = 5e-5
 
 
 @dataclass(frozen=True)
@@ -63,6 +66,35 @@ def _resolve_graph_dir(source_root: Path, dataset: str, payload: dict) -> Path:
     )
 
 
+def _resolve_primary_metrics(run_dir: Path, analysis_dir: Path) -> Path:
+    """Accept both native evaluation and main-comparison summary locations."""
+    candidates = (
+        Path(analysis_dir) / "primary_metrics.json",
+        Path(run_dir) / "primary_metrics.json",
+    )
+    return next((path for path in candidates if path.is_file()), candidates[0])
+
+
+def _canonicalize_sensor_vectors(frame: pd.DataFrame) -> pd.DataFrame:
+    output = frame.copy()
+    if "sensor_score_vec" not in output:
+        return output
+    values = []
+    for value in output["sensor_score_vec"]:
+        if isinstance(value, str):
+            try:
+                parsed = np.asarray(json.loads(value), dtype=np.float64).reshape(-1)
+            except json.JSONDecodeError:
+                parsed = np.fromstring(value.strip().strip("[]").replace(",", " "), sep=" ")
+        else:
+            parsed = np.asarray(value, dtype=np.float64).reshape(-1)
+        if parsed.size == 0 or not np.isfinite(parsed).all():
+            raise ValueError(f"Invalid source sensor_score_vec: {str(value)[:80]!r}")
+        values.append(json.dumps(parsed.astype(float).tolist()))
+    output["sensor_score_vec"] = values
+    return output
+
+
 def resolve_source_run(source_root: Path, dataset: str, seed: int) -> SourceRun:
     dataset = str(dataset).lower()
     seed = int(seed)
@@ -81,7 +113,7 @@ def resolve_source_run(source_root: Path, dataset: str, seed: int) -> SourceRun:
         "split_path": run_dir / "split_flights.json",
         "failure_residuals": infer / "all_failure_window_forecast_residual.csv",
         "sequence_scores": infer / "sequence_scores.csv",
-        "primary_metrics": analysis / "primary_metrics.json",
+        "primary_metrics": _resolve_primary_metrics(run_dir, analysis),
         "per_flight_metrics": analysis / "per_flight_total_score_threshold_methods.csv",
     }
     missing = [str(path) for path in paths.values() if not path.is_file()]
@@ -198,6 +230,40 @@ def audit_source(source: SourceRun) -> dict[str, Any]:
     for key in ("precision", "recall", "f1", "fpr", "auroc", "average_precision"):
         if key not in primary or not np.isfinite(float(primary[key])):
             errors.append(f"non_finite_primary_metric={key}")
+    raw_parity = float("nan")
+    smooth_parity = float("nan")
+    try:
+        source_residuals = _canonicalize_sensor_vectors(pd.read_csv(source.failure_residuals))
+        rebuilt = aggregate_dataframe(
+            source_residuals,
+            "mean",
+            float(cfg.score_temporal_smooth_alpha),
+        )
+        sequence = pd.read_csv(source.sequence_scores)
+        parity = sequence.merge(
+            rebuilt[["flight", "current_index", "raw_total_score", "total_score"]],
+            on=["flight", "current_index"],
+            suffixes=("_source", "_rebuilt"),
+            validate="one_to_one",
+        )
+        if len(parity) != len(sequence) or len(parity) != len(rebuilt):
+            errors.append(
+                f"source_score_row_mismatch=sequence:{len(sequence)},residuals:{len(rebuilt)},merged:{len(parity)}"
+            )
+        else:
+            raw_parity = float(np.max(np.abs(
+                parity["raw_total_score_source"] - parity["raw_total_score_rebuilt"]
+            )))
+            smooth_parity = float(np.max(np.abs(
+                parity["total_score_source"] - parity["total_score_rebuilt"]
+            )))
+            if raw_parity > RAW_SCORE_ATOL or smooth_parity > SMOOTH_SCORE_ATOL:
+                errors.append(
+                    "source_score_inconsistent="
+                    f"raw:{raw_parity:.9g},smooth:{smooth_parity:.9g}"
+                )
+    except Exception as exc:
+        errors.append(f"source_score_audit_failed={exc!r}")
     return {
         "status": "passed" if not errors else "failed",
         "dataset": source.dataset,
@@ -207,6 +273,9 @@ def audit_source(source: SourceRun) -> dict[str, Any]:
         "source_signature": source.source_signature,
         "scored_failure_flights": len(score_flights),
         "primary_labeled_flights": len(primary_flights),
+        "source_raw_score_max_abs_error": raw_parity,
+        "source_smooth_score_max_abs_error": smooth_parity,
+        "primary_metrics_path": str(source.primary_metrics),
         "errors": errors,
     }
 

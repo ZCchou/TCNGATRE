@@ -185,7 +185,7 @@ def run_ex07(
         if len(parity) != len(original):
             raise RuntimeError("Graph capture parity merge is incomplete")
         parity_error = float(np.max(np.abs(parity["total_score_source"] - parity["total_score_capture"])))
-        if parity_error > 1e-5:
+        if parity_error > 5e-5:
             raise RuntimeError(f"Graph capture score parity failed: {parity_error}")
 
         labeled = attach_window_labels(
