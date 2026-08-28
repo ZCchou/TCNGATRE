@@ -127,12 +127,19 @@ def _loader(bundle, split, scaler, params, shuffle, seed):
 
 
 def _parameters(cfg, channels: int) -> dict:
+    # Align the input sampling protocol with the corresponding TCNGATRE run.
+    # M2AD remains a native one-step predictor because changing its output to
+    # four steps would alter the released model and its per-sensor GMM scoring.
     return {
-        "window": 100,
+        "window": int(cfg.lookback),
         "target_size": 1,
-        "train_stride": 128 if cfg.smoke else 16,
-        "score_stride": 16,
-        "batch_size": 32,
+        "train_stride": int(cfg.stride),
+        "score_stride": int(cfg.stride),
+        "batch_size": int(cfg.batch_size),
+        "input_protocol": "tcngatre_aligned_lookback_stride_batch",
+        "tcngatre_reference_horizon": int(cfg.horizon),
+        "forecast_horizon": 1,
+        "forecast_horizon_policy": "method_native_one_step",
         "epochs": 1 if cfg.smoke else 35,
         "early_stop_patience": 5,
         "early_stop_min_delta": 1e-6,
