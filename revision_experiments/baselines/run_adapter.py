@@ -20,7 +20,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Run one isolated official-code or protocol-compatible baseline adapter."
     )
     parser.add_argument(
-        "--baseline", choices=["catch", "carots", "mstgcnet", "tsae_uav"], required=True
+        "--baseline", choices=["catch", "carots", "mstgcnet", "tsae_uav", "gcad", "m2ad"], required=True
     )
     parser.add_argument("--dataset", choices=["alfa", "gpsdata", "simulate"], required=True)
     parser.add_argument("--seed", type=int, default=0)
@@ -31,7 +31,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    experiment = "ex03" if args.baseline in {"mstgcnet", "tsae_uav"} else "ex04"
+    if args.baseline in {"mstgcnet", "tsae_uav"}:
+        experiment = "ex03"
+    elif args.baseline in {"gcad", "m2ad"}:
+        experiment = "ex09"
+    else:
+        experiment = "ex04"
     cfg = make_config(experiment, args.dataset, args.baseline, args.seed, smoke=args.smoke)
     if args.baseline == "catch":
         from revision_experiments.baselines.catch_adapter import run
@@ -39,8 +44,14 @@ def main(argv: list[str] | None = None) -> int:
         from revision_experiments.baselines.carots_adapter import run
     elif args.baseline == "mstgcnet":
         from revision_experiments.baselines.mstgcnet_adapter import run
-    else:
+    elif args.baseline == "tsae_uav":
         from revision_experiments.baselines.tsae_uav_adapter import run
+    elif args.baseline == "gcad":
+        from revision_experiments.baselines.gcad_adapter import run
+    elif args.baseline == "m2ad":
+        from revision_experiments.baselines.m2ad_adapter import run
+    else:
+        raise ValueError(f"Unsupported baseline: {args.baseline}")
     outcome = run(cfg, force=args.force)
     print(json.dumps(outcome, ensure_ascii=False, indent=2, default=str), flush=True)
     return 0

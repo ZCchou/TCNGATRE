@@ -34,7 +34,7 @@ from revision_experiments.scoring.postprocess import run_aggregation_suite
 
 
 TRAINING_EXPERIMENTS = {"ex01", "ex02"}
-BASELINE_EXPERIMENTS = {"ex03", "ex04"}
+BASELINE_EXPERIMENTS = {"ex03", "ex04", "ex09"}
 
 
 def _csv_list(value: str) -> list[str]:
@@ -83,8 +83,6 @@ def _task_rows(
     rows = []
     for experiment, experiment_variants in selection.items():
         for dataset in datasets:
-            if experiment == "ex03" and dataset != "alfa":
-                continue
             for variant in experiment_variants:
                 for seed in seeds:
                     cfg = make_config(experiment, dataset, variant, seed, smoke=smoke, protocol=protocol)
@@ -159,6 +157,7 @@ def execute_tasks(rows: list[dict], force: bool = False) -> list[dict]:
         elif (
             (experiment == "ex04" and cfg.variant in {"catch", "carots"})
             or (experiment == "ex03" and cfg.variant in {"mstgcnet", "tsae_uav"})
+            or (experiment == "ex09" and cfg.variant in {"gcad", "m2ad"})
         ):
             outcome = execute_isolated_baseline(cfg, force=force)
         elif experiment in BASELINE_EXPERIMENTS:

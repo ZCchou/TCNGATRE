@@ -45,7 +45,8 @@
       "channel_dropout_3",
       "downsample_2",
       "downsample_4"
-    ]
+    ],
+    "ex09": ["gcad", "m2ad"]
   },
   "experiment_presets": {
     "core_ablation": {

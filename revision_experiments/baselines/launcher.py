@@ -20,7 +20,7 @@ def runtime_python(baseline: str) -> Path:
         if RUNTIME_PATHS.is_file() else {}
     )
     raw = paths.get(baseline)
-    if raw is None and baseline in {"mstgcnet", "tsae_uav"}:
+    if raw is None and baseline in {"mstgcnet", "tsae_uav", "gcad", "m2ad"}:
         # These paper/scaffold reproductions have no incompatible official package stack.
         # They intentionally run in the already validated revision-core interpreter.
         return Path(sys.executable).resolve()
@@ -59,6 +59,8 @@ def execute_isolated_baseline(cfg, force: bool = False) -> dict:
     environment = os.environ.copy()
     environment["PYTHONDONTWRITEBYTECODE"] = "1"
     environment["PYTHONPATH"] = str(REPO_ROOT)
+    if not environment.get("LOKY_MAX_CPU_COUNT"):
+        environment["LOKY_MAX_CPU_COUNT"] = str(os.cpu_count() or 1)
     log_path = run_dir / "adapter_console.log"
     with log_path.open("w", encoding="utf-8") as log:
         process = subprocess.Popen(

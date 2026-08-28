@@ -52,5 +52,29 @@
     "code_status": "skipped_by_scope",
     "reproduction_classification": "skipped_by_scope",
     "required_datasets": ["alfa"]
+  },
+  "gcad": {
+    "title": "GCAD: Anomaly Detection in Multivariate Time Series from the Perspective of Granger Causality",
+    "year": 2025,
+    "venue": "AAAI",
+    "paper_url": "https://ojs.aaai.org/index.php/AAAI/article/view/34096",
+    "repository_url": "https://github.com/Tc99m/GCAD.git",
+    "ref": "master",
+    "commit": "e3e0c039468c105edf798747269ba87c309b573f",
+    "code_status": "official",
+    "reproduction_classification": "official_model_with_protocol_adapter",
+    "required_datasets": ["alfa", "gpsdata", "simulate"]
+  },
+  "m2ad": {
+    "title": "M2AD: Multi-Sensor Multi-System Anomaly Detection through Global Scoring and Calibrated Thresholding",
+    "year": 2025,
+    "venue": "AISTATS",
+    "paper_url": "https://proceedings.mlr.press/v258/alnegheimish25a.html",
+    "repository_url": "https://github.com/sarahmish/M2AD.git",
+    "ref": "master",
+    "commit": "05ac998e55123c51c4a4dd47ad31343bc3c25c23",
+    "code_status": "official",
+    "reproduction_classification": "official_components_with_protocol_adapter",
+    "required_datasets": ["alfa", "gpsdata", "simulate"]
   }
 }
