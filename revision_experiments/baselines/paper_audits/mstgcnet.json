@@ -14,23 +14,44 @@
     "official_components_executed": []
   },
   "engineering_configuration": {
+    "default_profile": "paper_faithful",
     "window": 96,
+    "window_stride": 16,
+    "train_epochs": 50,
+    "early_stop_patience": 10,
     "layers": 3,
     "d_model": 64,
     "top_k": 3,
     "knn": 5,
     "attention_heads": 2,
     "experts_per_layer": [4, 4, 4],
-    "patch_size_list": [[16, 12, 8, 32], [12, 8, 6, 4], [8, 6, 4, 2]],
+    "paper_patch_pool": [2, 6, 8, 12, 16, 32],
+    "patch_size_list": [[8, 12, 16, 32], [6, 8, 12, 16], [2, 6, 8, 12]],
     "trend_kernels": [4, 8, 12],
     "seasonality": 3,
     "dropout": 0.1,
     "revin": true,
     "residual": true
   },
+  "paper_equation_aligned_completion": {
+    "input_embedding": "temporal Conv1D projection with positional embedding",
+    "router": "top-3 Fourier seasonal reconstruction plus adaptive multi-kernel trend routing",
+    "sparse_mixture": "four experts per block with top-3 routing and balance loss",
+    "expert": "patch-level intrapatch attention and causal KNN graph propagation",
+    "reconstruction": "three residual GMoE blocks followed by pointwise reconstruction",
+    "selection_constraint": "training and early stopping use normal train/validation flights only"
+  },
+  "optional_label_independent_profile": {
+    "name": "alfa_sensitivity",
+    "selection_source": "paper Figure 3 ALFA sensitivity analysis",
+    "window": 64,
+    "d_model": 8,
+    "failure_labels_used_for_selection": false,
+    "formal_result_status": "not_run"
+  },
   "protocol_adaptations": [
     "Keep the official repository read-only and pinned for provenance only.",
-    "Replace unavailable core operations with an auditable engineering approximation.",
+    "Complete unavailable core operations from the published equations in an auditable clean-room implementation.",
     "Use the fixed ALFA 29/1/16 common-data split and train-normal-only Z-score statistics.",
     "Do not access the failure/test split during training epochs.",
     "Replace native labels, ATSSD and point adjustment with causal EMA plus flightwise SPOT.",

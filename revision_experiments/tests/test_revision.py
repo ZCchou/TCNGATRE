@@ -20,6 +20,12 @@ from revision_experiments.baselines.export_common_data import (
     validate_common_data,
 )
 from revision_experiments.baselines.mstgcnet_model import MSTGCNetApprox
+from revision_experiments.baselines.mstgcnet_native_evaluation import (
+    atssd,
+    confusion_metrics,
+    point_adjust,
+)
+from revision_experiments.baselines.reproduction_utils import accumulation_groups
 from revision_experiments.baselines.tsae_uav_model import TSAEUAV
 from revision_experiments.core.config import (
     load_protocol,
@@ -452,6 +458,29 @@ class ReviewerBaselineReproductionTests(unittest.TestCase):
         self.assertEqual(len(rows), 2)
         self.assertEqual({row["variant"] for row in rows}, {"mstgcnet", "tsae_uav"})
 
+    def test_ex03_gps_simulate_expands_to_twenty_formal_runs(self):
+        from revision_experiments.run_revision import _task_rows
+
+        rows = _task_rows(
+            ["ex03"], ["gpsdata", "simulate"], [0, 1, 2, 3, 4], False,
+            variants=["mstgcnet", "tsae_uav"],
+        )
+        self.assertEqual(len(rows), 20)
+        self.assertEqual(len({row["run_dir"] for row in rows}), 20)
+
+    def test_accumulation_groups_preserve_short_final_group_size(self):
+        loader = [torch.zeros(32, 2), torch.zeros(32, 2), torch.zeros(5, 2)]
+        groups = list(accumulation_groups(loader, 2))
+        self.assertEqual([count for _, count in groups], [64, 5])
+
+    def test_mstgcnet_native_metrics_use_micro_confusion_counts(self):
+        labels = np.array([0, 1, 1, 0, 1, 1], dtype=np.int8)
+        scores = np.array([0.0, 1.0, 0.5, 0.0, 2.0, 0.2])
+        prediction = point_adjust(labels, atssd(scores, window_size=2, alpha=0.5))
+        metrics = confusion_metrics(labels, prediction, scores)
+        self.assertAlmostEqual(metrics["precision"], metrics["tp"] / max(metrics["tp"] + metrics["fp"], 1))
+        self.assertAlmostEqual(metrics["recall"], metrics["tp"] / max(metrics["tp"] + metrics["fn"], 1))
+
     def test_tsae_uav_forward_backward_is_finite(self):
         model = TSAEUAV(channels=12, d_model=64, top_k=3, layers=2)
         values = torch.randn(2, 16, 12)
@@ -472,7 +501,17 @@ class ReviewerBaselineReproductionTests(unittest.TestCase):
         for adjacency in adjacencies:
             self.assertEqual(tuple(adjacency.shape), (12, 12))
             torch.testing.assert_close(adjacency.sum(dim=-1), torch.ones(12))
-            self.assertTrue((adjacency > 0).sum(dim=-1).le(5).all())
+        for layer in model.layers:
+            for expert in layer.experts:
+                neighbor_index, neighbor_weight = expert._causal_knn()
+                self.assertEqual(neighbor_index.shape[1], 5)
+                self.assertTrue(torch.isfinite(neighbor_weight).all())
+                self.assertTrue(
+                    (
+                        expert.patch_index[neighbor_index]
+                        <= expert.patch_index[:, None]
+                    ).all()
+                )
         (reconstructed.square().mean() + 0.01 * balance).backward()
         self.assertTrue(all(parameter.grad is not None for parameter in model.parameters()))
 
