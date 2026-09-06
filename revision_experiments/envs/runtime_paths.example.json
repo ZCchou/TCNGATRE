@@ -1,6 +1,0 @@
-{
-  "catch": "<absolute-path-to-catch-environment-python>",
-  "carots": "<absolute-path-to-carots-environment-python>",
-  "mstgcnet": "<optional-absolute-path; current validated Python is used when omitted>",
-  "tsae_uav": "<optional-absolute-path; current validated Python is used when omitted>"
-}

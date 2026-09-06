@@ -1,3 +1,0 @@
-flight,raw_fault_start_before_trim_sec,trimmed_manifest_fault_start,trimmed_fault_flag_first_positive_t,physical_trim_leading_sec,abs_delta_sec
-abnormal_jam,8.505,6.505000000000001,6.505000000000001,2.0,0.0
-abnormal_wear,11.549,9.549,9.549,2.0,0.0

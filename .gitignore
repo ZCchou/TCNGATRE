@@ -1,26 +1,40 @@
-# Python caches
+# Python caches and environments
 __pycache__/
 **/__pycache__/
 *.py[cod]
-*.pyo
+.venv/
+venv/
+.conda/
 
-# Notebook / local tool state
+# IDE and notebook state
+.idea/
+.vscode/
 .ipynb_checkpoints/
-**/.ipynb_checkpoints/
 .claude/
 
-# Local experiment outputs
-batch_logs/
+# Model outputs and checkpoints
 **/runs/
-
-# Training artifacts
+batch_logs/
 *.pt
 *.pth
 *.ckpt
 
-# Local generated figures
-big_o_complexity_curves.png
-big_o_complexity_curves_legend.png
-model_time_complexity_curves_legend.png
-time_complexity_index.png
-time_complexity_index_line.png
+# Local datasets: retain manifests and documentation only
+dataset/**/*.csv
+dataset/**/*.parquet
+dataset/**/*.feather
+dataset/**/*.npy
+dataset/**/*.npz
+
+# Generated plots and logs
+*.log
+*.tmp
+*.png
+*.tiff
+*.svg
+
+# Packaging artifacts
+build/
+dist/
+*.egg-info/
+
