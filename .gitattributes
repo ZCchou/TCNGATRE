@@ -1,0 +1,4 @@
+# Preserve the distributed dataset bytes across platforms.
+dataset/** -text
+dataset/README.md text eol=lf
+dataset/SHA256SUMS.txt text eol=lf

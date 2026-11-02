@@ -6,7 +6,7 @@ TCNGATRE combines a causal temporal convolutional forecasting backbone with two 
 
 ## Repository scope
 
-The `main` branch contains only the proposed model and the code required to train, infer, and evaluate it:
+The `main` branch contains the proposed model, its training and evaluation code, and the complete local dataset bundle:
 
 - `TCNGATRE/model/`: temporal and graph forecasting network.
 - `TCNGATRE/data/`: flight-level split and sliding-window data loaders.
@@ -14,6 +14,7 @@ The `main` branch contains only the proposed model and the code required to trai
 - `TCNGATRE/utils/`: normalisation, output, and threshold helpers.
 - `common/threshold_methods.py`: SPOT and metric implementation used by evaluation.
 - `dataset/*/dataset_manifest.json`: dataset split definitions used in the paper.
+- `dataset/`: ALFA, GPSData, and Simulate flight data, labels, and preparation metadata.
 
 Baseline, ablation, hyperparameter, post-hoc analysis, generated-result, and manuscript files are intentionally excluded from this branch.
 
@@ -29,7 +30,7 @@ python -m pip install -r requirements.txt
 
 ## Data preparation
 
-The flight CSV files are not stored in this code-only branch. Place the prepared ALFA, GPSData, or Simulate files under `dataset/` using the layout described in [`dataset/README.md`](dataset/README.md). The included manifests preserve the flight-level splits used in the paper.
+The prepared ALFA, GPSData, and Simulate flight CSV files and labels are included under `dataset/`. No separate data download is needed to use these prepared inputs. See [`dataset/README.md`](dataset/README.md) for the layout, split counts, and file checksums. The included manifests preserve the flight-level splits used in the paper.
 
 Each input CSV must contain a monotonic time column followed by numeric sensor columns. Normal training and validation flights are placed in `No_Failure`, and scored fault flights are placed in `Failure`. Failure-label CSV files use matching flight stems.
 

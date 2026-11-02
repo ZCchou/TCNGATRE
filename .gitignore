@@ -19,12 +19,7 @@ batch_logs/
 *.pth
 *.ckpt
 
-# Local datasets: retain manifests and documentation only
-dataset/**/*.csv
-dataset/**/*.parquet
-dataset/**/*.feather
-dataset/**/*.npy
-dataset/**/*.npz
+# The prepared datasets are versioned under dataset/.
 
 # Generated plots and logs
 *.log
