@@ -66,7 +66,4 @@ After a complete run, the default run directory contains:
 - The model uses four causal TCN blocks, with graph correction after the second and fourth blocks.
 - Evaluation uses causal score smoothing and flight-wise SPOT without failure-label threshold calibration.
 
-## Full research code
-
-The complete experimental framework, including baselines and revision analyses, remains available on the `codex-revision-20260821` branch.
 
