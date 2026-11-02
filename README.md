@@ -58,11 +58,7 @@ After a complete run, the default run directory contains:
 - validation and failure-flight forecasts and residual scores;
 - window-level labels, threshold decisions, and aggregate metrics.
 
-## Reproducibility notes
 
-- Static MIC graphs are built from normal training flights only.
-- Normalisation statistics are fitted on the normal training split.
-- Flight-level splits are read from the dataset manifests.
 - The model uses four causal TCN blocks, with graph correction after the second and fourth blocks.
 - Evaluation uses causal score smoothing and flight-wise SPOT without failure-label threshold calibration.
 
